@@ -18,7 +18,7 @@ from src.helpers import (
     log_activity,
     register_unique_account,
 )
-from src.runners import ClaudeRunner, OpenCodeResult, OpenCodeRunner
+from src.runners import ClaudeRunner, OpenCodeResult, OpenCodeRunner, Question
 from src.utils import BaseXMPPBot
 
 if TYPE_CHECKING:
@@ -185,6 +185,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             await self.run_shell_command(body[1:].strip())
             return
 
+        # Check for pending question answers first
+        if self.answer_pending_question(body):
+            self.log.info(f"Answered pending question with: {body[:50]}...")
+            return
+
         # Busy handling
         if self.processing:
             if is_scheduled:
@@ -332,11 +337,15 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
     async def _run_opencode(self, body: str, session):
         """Run OpenCode and handle events."""
+        # Set up question callback for handling AI questions
+        question_callback = self._create_question_callback()
+
         self.runner = OpenCodeRunner(
             self.working_dir, self.output_dir, self.session_name,
             model=session.model_id,
             reasoning_mode=session.reasoning_mode,
             agent=session.opencode_agent,
+            question_callback=question_callback,
         )
         response_parts: list[str] = []
         tool_summaries: list[str] = []
@@ -354,6 +363,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 if len(tool_summaries) - last_progress_at >= 8:
                     last_progress_at = len(tool_summaries)
                     self.send_reply(f"... {' '.join(tool_summaries[-3:])}")
+            elif event_type == "question" and isinstance(content, Question):
+                # Question is being handled by callback, just log it
+                self.log.info(f"Question asked: {content.request_id}")
             elif event_type == "result" and isinstance(content, OpenCodeResult):
                 stats = (
                     f"[{content.tokens_in}/{content.tokens_out} tok"
@@ -365,6 +377,76 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 self.send_reply(f"Error: {content}")
             elif event_type == "cancelled":
                 self.send_reply("Cancelled.")
+
+    def _create_question_callback(self):
+        """Create a callback for handling AI questions via XMPP."""
+        pending_answers: dict[str, asyncio.Future] = {}
+
+        async def question_callback(question: Question) -> dict[str, list[str]]:
+            """Handle a question from the AI by asking the user via XMPP."""
+            # Format the question for display
+            question_text = self._format_question(question)
+            self.send_reply(f"[AI Question]\n{question_text}")
+
+            # Create a future to wait for the answer
+            future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
+            pending_answers[question.request_id] = future
+
+            # Store callback reference on self for message handler to find
+            if not hasattr(self, "_pending_question_answers"):
+                self._pending_question_answers = {}
+            self._pending_question_answers[question.request_id] = future
+
+            try:
+                # Wait for user response with timeout
+                answer = await asyncio.wait_for(future, timeout=300)  # 5 min timeout
+                # Parse the answer - for now just use it as the first answer
+                return {question.questions[0]["question"]: [answer]} if question.questions else {}
+            except asyncio.TimeoutError:
+                self.send_reply("[Question timed out - proceeding without answer]")
+                raise
+            finally:
+                pending_answers.pop(question.request_id, None)
+                if hasattr(self, "_pending_question_answers"):
+                    self._pending_question_answers.pop(question.request_id, None)
+
+        return question_callback
+
+    def _format_question(self, question: Question) -> str:
+        """Format a Question object for display to user."""
+        parts = []
+        for q in question.questions:
+            header = q.get("header", "")
+            text = q.get("question", "")
+            options = q.get("options", [])
+
+            if header:
+                parts.append(f"**{header}**")
+            parts.append(text)
+
+            if options:
+                for i, opt in enumerate(options, 1):
+                    label = opt.get("label", f"Option {i}")
+                    desc = opt.get("description", "")
+                    if desc:
+                        parts.append(f"  {i}. {label} - {desc}")
+                    else:
+                        parts.append(f"  {i}. {label}")
+
+        return "\n".join(parts)
+
+    def answer_pending_question(self, answer: str) -> bool:
+        """Answer a pending question. Called from message handler."""
+        if not hasattr(self, "_pending_question_answers") or not self._pending_question_answers:
+            return False
+
+        # Answer the most recent pending question
+        request_id = list(self._pending_question_answers.keys())[-1]
+        future = self._pending_question_answers.get(request_id)
+        if future and not future.done():
+            future.set_result(answer)
+            return True
+        return False
 
     def _send_result(
         self,

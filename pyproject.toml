@@ -5,4 +5,5 @@ description = "Chat with AI coding assistants from any XMPP client"
 requires-python = ">=3.11"
 dependencies = [
     "slixmpp>=1.8.0",
+    "aiohttp>=3.9.0",
 ]
