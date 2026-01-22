@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Dispatcher bot - creates new session bots on demand."""
 
 from __future__ import annotations
@@ -62,7 +61,6 @@ class DispatcherBot(BaseXMPPBot):
         self.add_event_handler("message", self.on_message)
         self.add_event_handler("disconnected", self.on_disconnected)
 
-        # Command dispatch table
         self._commands: dict[str, Callable[[str], Coroutine]] = {
             "/list": self._cmd_list,
             "/kill": self._cmd_kill,
@@ -93,7 +91,6 @@ class DispatcherBot(BaseXMPPBot):
             dispatcher_bare = str(self.boundjid.bare)
             sender_user = sender.split("@")[0]
 
-            # Only accept from recipient, self, or loopback
             if not (
                 sender == self.xmpp_recipient
                 or sender == dispatcher_bare
@@ -110,18 +107,13 @@ class DispatcherBot(BaseXMPPBot):
 
             self.log.info(f"Dispatcher received: {body[:50]}...")
 
-            # Handle commands
             if body.startswith("/"):
                 if is_loopback:
-                    self.send_reply(
-                        "Loopback only supports session creation messages.",
-                        recipient=reply_to,
-                    )
+                    self.send_reply("Loopback only supports session creation.", recipient=reply_to)
                     return
                 await self._dispatch_command(body)
                 return
 
-            # Create session
             await self.create_session(body)
             if is_loopback:
                 self.send_reply(f"Dispatcher received: {body}", recipient=reply_to)
@@ -131,7 +123,7 @@ class DispatcherBot(BaseXMPPBot):
             self.send_reply(f"Error: {exc}", recipient=self.xmpp_recipient)
 
     async def _dispatch_command(self, body: str) -> None:
-        """Dispatch command to appropriate handler."""
+        """Dispatch command to handler."""
         parts = body.split(maxsplit=1)
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
@@ -143,20 +135,14 @@ class DispatcherBot(BaseXMPPBot):
             self.send_reply(f"Unknown: {cmd}. Try /help", recipient=self.xmpp_recipient)
 
     async def _cmd_list(self, _arg: str) -> None:
-        """List all sessions."""
         sessions = self.sessions.list_recent(15)
         if sessions:
-            lines = ["Sessions (message the contact directly to continue):"]
-            lines.extend(f"  {s.name}@{self.xmpp_domain}" for s in sessions)
+            lines = ["Sessions:"] + [f"  {s.name}@{self.xmpp_domain}" for s in sessions]
             self.send_reply("\n".join(lines), recipient=self.xmpp_recipient)
         else:
-            self.send_reply(
-                "No sessions yet. Send a message to start one!",
-                recipient=self.xmpp_recipient,
-            )
+            self.send_reply("No sessions yet.", recipient=self.xmpp_recipient)
 
     async def _cmd_kill(self, arg: str) -> None:
-        """Kill a session."""
         if not arg:
             self.send_reply("Usage: /kill <session-name>", recipient=self.xmpp_recipient)
             return
@@ -167,10 +153,9 @@ class DispatcherBot(BaseXMPPBot):
         self.send_reply(f"Killed: {arg}", recipient=self.xmpp_recipient)
 
     async def _cmd_recent(self, _arg: str) -> None:
-        """Show recent sessions with status."""
         sessions = self.sessions.list_recent(10)
         if sessions:
-            lines = ["Recent sessions:"]
+            lines = ["Recent:"]
             for s in sessions:
                 last = s.last_active[5:16] if s.last_active else "?"
                 lines.append(f"  {s.name} [{s.status}] {last}")
@@ -179,66 +164,45 @@ class DispatcherBot(BaseXMPPBot):
             self.send_reply("No sessions yet.", recipient=self.xmpp_recipient)
 
     async def _cmd_help(self, _arg: str) -> None:
-        """Show help message."""
         self.send_reply(
-            f"Send any message to start a new {self.label} session.\n"
-            "Each session appears as a separate contact.\n\n"
+            f"Send any message to start a new {self.label} session.\n\n"
             "Orchestrators:\n"
             "  cc@ - Claude Code\n"
             "  oc@ - OpenCode (GLM 4.7)\n"
             "  oc-gpt@ - OpenCode (GPT 5.2)\n\n"
             "Commands:\n"
-            "  /list - show all sessions\n"
-            "  /recent - 10 most recent with status\n"
-            "  /kill <name> - end a session\n"
+            "  /list - show sessions\n"
+            "  /recent - recent with status\n"
+            "  /kill <name> - end session\n"
             "  /help - this message",
             recipient=self.xmpp_recipient,
         )
 
     async def create_session(self, first_message: str):
-        """Create a new session and send first message to the engine."""
+        """Create a new session."""
         self.send_typing()
         message = first_message.strip()
 
-        base_name = slugify(message or first_message)
         account = register_unique_account(
-            base_name, self.db, self.ejabberd_ctl, self.xmpp_domain, self.log
+            slugify(message or first_message),
+            self.db, self.ejabberd_ctl, self.xmpp_domain, self.log,
         )
         if not account:
-            self.send_reply(
-                f"Failed to create XMPP account for {base_name}",
-                recipient=self.xmpp_recipient,
-            )
+            self.send_reply(f"Failed to create session", recipient=self.xmpp_recipient)
             return
 
         name, password, jid = account
-
-        self.send_reply(
-            f"Creating session: {name} ({self.label})...", recipient=self.xmpp_recipient
-        )
+        self.send_reply(f"Creating: {name} ({self.label})...", recipient=self.xmpp_recipient)
 
         recipient_user = self.xmpp_recipient.split("@")[0]
-        add_roster_subscription(
-            name, self.xmpp_recipient, "Clients", self.ejabberd_ctl, self.xmpp_domain
-        )
-        add_roster_subscription(
-            recipient_user, jid, "Sessions", self.ejabberd_ctl, self.xmpp_domain
-        )
-
+        add_roster_subscription(name, self.xmpp_recipient, "Clients", self.ejabberd_ctl, self.xmpp_domain)
+        add_roster_subscription(recipient_user, jid, "Sessions", self.ejabberd_ctl, self.xmpp_domain)
         create_tmux_session(name, self.working_dir)
 
-        model_id = (
-            "openai/gpt-5.2-codex"
-            if self.opencode_agent == "bridge-gpt"
-            else "glm_gguf/glm-4.7-flash-q8"
-        )
+        model_id = "openai/gpt-5.2-codex" if self.opencode_agent == "bridge-gpt" else "glm_gguf/glm-4.7-flash-q8"
         self.sessions.create(
-            name=name,
-            xmpp_jid=jid,
-            xmpp_password=password,
-            tmux_name=name,
-            model_id=model_id,
-            opencode_agent=self.opencode_agent or "bridge",
+            name=name, xmpp_jid=jid, xmpp_password=password, tmux_name=name,
+            model_id=model_id, opencode_agent=self.opencode_agent or "bridge",
             active_engine=self.engine,
         )
 
@@ -252,14 +216,7 @@ class DispatcherBot(BaseXMPPBot):
                 if bot.is_connected():
                     break
                 await asyncio.sleep(0.1)
-
-            bot.send_reply(
-                f"Session '{name}' started ({self.label}). "
-                f"Processing: {message[:50] or first_message[:50]}..."
-            )
+            bot.send_reply(f"Session '{name}' ({self.label}). Processing: {message[:50]}...")
             await bot.process_message(message or first_message)
         else:
-            self.send_reply(
-                f"Failed to start session bot for {name}",
-                recipient=self.xmpp_recipient,
-            )
+            self.send_reply(f"Failed to start bot for {name}", recipient=self.xmpp_recipient)

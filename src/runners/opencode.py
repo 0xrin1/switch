@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
-"""OpenCode CLI runner for XMPP bridge."""
+"""OpenCode CLI runner."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
+
+from src.runners.base import BaseRunner, RunState
 
 log = logging.getLogger("opencode")
 
@@ -30,43 +30,10 @@ class OpenCodeResult:
     tool_count: int
 
 
-@dataclass
-class RunState:
-    """Accumulates state during an OpenCode run."""
-
-    start_time: datetime = field(default_factory=datetime.now)
-    session_id: str | None = None
-    text: str = ""
-    tool_count: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    tokens_reasoning: int = 0
-    tokens_cache_read: int = 0
-    tokens_cache_write: int = 0
-    cost: float = 0.0
-    saw_result: bool = False
-    saw_error: bool = False
-    raw_output: list[str] = field(default_factory=list)
-
-    def to_result(self) -> OpenCodeResult:
-        return OpenCodeResult(
-            text=self.text,
-            session_id=self.session_id,
-            cost=self.cost,
-            tokens_in=self.tokens_in,
-            tokens_out=self.tokens_out,
-            tokens_reasoning=self.tokens_reasoning,
-            tokens_cache_read=self.tokens_cache_read,
-            tokens_cache_write=self.tokens_cache_write,
-            duration_s=(datetime.now() - self.start_time).total_seconds(),
-            tool_count=self.tool_count,
-        )
-
-
 Event = tuple[str, str | OpenCodeResult]
 
 
-class OpenCodeRunner:
+class OpenCodeRunner(BaseRunner):
     """Runs OpenCode CLI and streams parsed events."""
 
     def __init__(
@@ -78,18 +45,11 @@ class OpenCodeRunner:
         reasoning_mode: str = "normal",
         agent: str = "bridge",
     ):
-        self.working_dir = working_dir
-        self.output_dir = output_dir
-        self.session_name = session_name
+        super().__init__(working_dir, output_dir, session_name)
         self.model = model
         self.reasoning_mode = reasoning_mode
         self.agent = agent
         self.process: asyncio.subprocess.Process | None = None
-        self.output_file: Path | None = None
-
-        if session_name:
-            output_dir.mkdir(exist_ok=True)
-            self.output_file = output_dir / f"{session_name}.log"
 
     def _build_command(self, prompt: str, session_id: str | None) -> list[str]:
         """Build the opencode command line."""
@@ -102,12 +62,6 @@ class OpenCodeRunner:
             cmd.extend(["--variant", "high"])
         cmd.extend(["--", prompt])
         return cmd
-
-    def _log_to_file(self, content: str) -> None:
-        """Append content to the output log file."""
-        if self.output_file:
-            with open(self.output_file, "a") as f:
-                f.write(content)
 
     def _handle_step_start(self, event: dict, state: RunState) -> Event | None:
         """Handle step_start event - extracts session ID."""
@@ -165,7 +119,7 @@ class OpenCodeRunner:
 
         if part.get("reason") == "stop":
             state.saw_result = True
-            return ("result", state.to_result())
+            return ("result", self._make_result(state))
         return None
 
     def _handle_error(self, event: dict, state: RunState) -> Event:
@@ -174,11 +128,25 @@ class OpenCodeRunner:
         message = event.get("message")
         error = event.get("error")
 
-        # message can be nested
         if isinstance(message, dict):
             message = message.get("data", {}).get("message") or message.get("message")
 
         return ("error", str(message or error or "OpenCode error"))
+
+    def _make_result(self, state: RunState) -> OpenCodeResult:
+        """Create result object from current state."""
+        return OpenCodeResult(
+            text=state.text,
+            session_id=state.session_id,
+            cost=state.cost,
+            tokens_in=state.tokens_in,
+            tokens_out=state.tokens_out,
+            tokens_reasoning=state.tokens_reasoning,
+            tokens_cache_read=state.tokens_cache_read,
+            tokens_cache_write=state.tokens_cache_write,
+            duration_s=state.duration_s,
+            tool_count=state.tool_count,
+        )
 
     def _parse_event(self, event: dict, state: RunState) -> Event | None:
         """Parse a JSON event and return the appropriate yield value."""
@@ -189,11 +157,8 @@ class OpenCodeRunner:
             "step_finish": self._handle_step_finish,
             "error": self._handle_error,
         }
-        event_type = event.get("type")
-        handler = handlers.get(event_type)
-        if handler:
-            return handler(event, state)
-        return None
+        handler = handlers.get(event.get("type"))
+        return handler(event, state) if handler else None
 
     async def run(
         self, prompt: str, session_id: str | None = None
@@ -211,7 +176,7 @@ class OpenCodeRunner:
         state = RunState()
 
         log.info(f"OpenCode: {prompt[:50]}...")
-        self._log_to_file(f"[{datetime.now().strftime('%H:%M:%S')}] Prompt: {prompt}\n")
+        self._log_prompt(prompt)
 
         try:
             self.process = await asyncio.create_subprocess_exec(
@@ -243,7 +208,6 @@ class OpenCodeRunner:
 
             await self.process.wait()
 
-            # Handle cases where we didn't get a proper result
             if self.process.returncode and self.process.returncode != 0:
                 state.saw_error = True
 
