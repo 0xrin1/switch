@@ -12,6 +12,7 @@ Designed to run on a dedicated Linux machine (old laptop, mini PC, home server) 
 - **Session persistence**: Resume conversations after restarts
 - **Ralph loops**: Autonomous iteration for long-running tasks
 - **Shell access**: Run commands directly from chat
+- **Local memory vault**: Gitignored notes under `src/memory/`
 
 ## Quick Start
 
@@ -61,6 +62,7 @@ You ──▶ XMPP Client ──▶ Dispatcher Bot ──▶ Session Bot ──�
 - [Setup Guide](docs/setup.md) - Hardware, installation, configuration
 - [Commands Reference](docs/commands.md) - All available commands
 - [Architecture](docs/architecture.md) - How the system works
+- [Memory Vault](docs/memory.md) - Store local learnings and runbooks
 
 ## Requirements
 
