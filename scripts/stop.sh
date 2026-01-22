@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop the XMPP-OpenCode bridge
+# Stop Switch
 
-systemctl --user stop xmpp-opencode-bridge.service
-echo "Bridge stopped."
+systemctl --user stop switch.service
+echo "Switch stopped."

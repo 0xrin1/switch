@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-XMPP-OpenCode Bridge (Multi-Account)
+Switch - XMPP AI Assistant Bridge
 
 Each OpenCode/Claude session gets its own XMPP account, appearing as a separate
 chat contact in the client.

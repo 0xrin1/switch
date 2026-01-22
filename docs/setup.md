@@ -2,7 +2,7 @@
 
 ## Hardware
 
-This bridge is designed to run on a **dedicated Linux machine** - ideally bare metal so the AI agents have real system access and can do useful work. An old laptop, mini PC, or home server works well.
+Switch is designed to run on a **dedicated Linux machine** - ideally bare metal so the AI agents have real system access and can do useful work. An old laptop, mini PC, or home server works well.
 
 The machine should have:
 - Full filesystem access for the AI to read/write code
@@ -26,8 +26,8 @@ Running in a VM or container defeats the purpose - you want the AI to operate on
 1. Clone the repository:
 
 ```bash
-git clone <repo-url> xmpp-opencode-bridge
-cd xmpp-opencode-bridge
+git clone <repo-url> switch
+cd switch
 ```
 
 2. Install dependencies:
@@ -73,7 +73,7 @@ EJABBERD_CTL="ssh user@host /path/to/ejabberdctl"
 
 ### Account Permissions
 
-The bridge creates/deletes XMPP accounts dynamically. Ensure ejabberd allows:
+Switch creates/deletes XMPP accounts dynamically. Ensure ejabberd allows:
 - Account registration via ejabberdctl
 - Roster manipulation via ejabberdctl
 
@@ -107,10 +107,10 @@ uv run python -m src.bridge
 Copy the service file:
 
 ```bash
-cp xmpp-opencode-bridge.service ~/.config/systemd/user/
+cp switch.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable xmpp-opencode-bridge
-systemctl --user start xmpp-opencode-bridge
+systemctl --user enable switch
+systemctl --user start switch
 ```
 
 ### Using Scripts
@@ -124,7 +124,7 @@ scripts/run.sh     # Run directly (not via systemd)
 
 ## Verification
 
-1. Start the bridge
+1. Start Switch
 2. Send a message to `oc@your.xmpp.server` from your XMPP client
 3. A new contact should appear with the session name
 4. The AI should respond to your message
@@ -132,7 +132,7 @@ scripts/run.sh     # Run directly (not via systemd)
 ## Directory Structure
 
 ```
-xmpp-opencode-bridge/
+switch/
 ├── src/                # Main application
 │   ├── bridge.py       # Entry point
 │   └── utils.py        # XMPP utilities

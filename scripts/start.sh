@@ -1,11 +1,11 @@
 #!/bin/bash
-# Start the XMPP-OpenCode bridge
+# Start Switch
 
-systemctl --user start xmpp-opencode-bridge.service
-systemctl --user status xmpp-opencode-bridge.service --no-pager
+systemctl --user start switch.service
+systemctl --user status switch.service --no-pager
 
 echo ""
 echo "Commands:"
 echo "  Logs:    scripts/logs.sh"
 echo "  Stop:    scripts/stop.sh"
-echo "  Status:  systemctl --user status xmpp-opencode-bridge"
+echo "  Status:  systemctl --user status switch"

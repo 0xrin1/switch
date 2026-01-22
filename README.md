@@ -1,4 +1,4 @@
-# XMPP-OpenCode Bridge
+# Switch
 
 Chat with AI coding assistants from any XMPP client. Each conversation becomes a separate contact, making it easy to manage multiple concurrent sessions from your phone or desktop.
 

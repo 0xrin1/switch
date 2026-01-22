@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the XMPP-OpenCode bridge directly (not via systemd)
+# Run Switch directly (not via systemd)
 
 cd "$(dirname "$0")/.."
 
@@ -40,5 +40,5 @@ if ! command -v tmux &> /dev/null; then
     exit 1
 fi
 
-echo "Starting XMPP-OpenCode bridge..."
+echo "Starting Switch..."
 uv run python -m src.bridge

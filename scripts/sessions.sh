@@ -1,5 +1,5 @@
 #!/bin/bash
-# List or manage OpenCode sessions
+# List or manage Switch sessions
 
 cd "$(dirname "$0")/.."
 
@@ -7,7 +7,7 @@ DB="sessions.db"
 
 case "${1:-list}" in
     list)
-        echo "=== OpenCode Sessions ==="
+        echo "=== Sessions ==="
         if [ -f "$DB" ]; then
             sqlite3 -header -column "$DB" \
                 "SELECT name, xmpp_jid, datetime(last_active) as last_active FROM sessions ORDER BY last_active DESC"
@@ -16,7 +16,7 @@ case "${1:-list}" in
         fi
         echo ""
         echo "=== tmux Sessions ==="
-        tmux list-sessions 2>/dev/null | grep -v "xmpp-opencode-bridge" || echo "None"
+        tmux list-sessions 2>/dev/null | grep -v "switch" || echo "None"
         ;;
 
     kill)

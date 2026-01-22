@@ -3,7 +3,7 @@
 # Usage: session-shell.sh <session-name>
 
 SESSION_NAME="$1"
-LOG_DIR="$HOME/xmpp-opencode-bridge/output"
+LOG_DIR="$HOME/switch/output"
 LOG_FILE="$LOG_DIR/$SESSION_NAME.log"
 
 if [ -z "$SESSION_NAME" ]; then
@@ -21,7 +21,7 @@ if [ ! -f "$LOG_FILE" ]; then
     done
 fi
 
-echo "=== XMPP-OpenCode session: $SESSION_NAME ==="
+echo "=== Switch session: $SESSION_NAME ==="
 echo "Tailing: $LOG_FILE"
 echo "(Ctrl+C to exit tmux pane)"
 echo ""

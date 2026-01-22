@@ -1,4 +1,4 @@
 #!/bin/bash
-# View bridge logs
+# View Switch logs
 
-journalctl --user -u xmpp-opencode-bridge.service -f
+journalctl --user -u switch.service -f

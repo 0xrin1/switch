@@ -1,12 +1,12 @@
 [Unit]
-Description=XMPP-OpenCode Bridge
+Description=Switch - XMPP AI Assistant Bridge
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/user/xmpp-opencode-bridge
-ExecStart=/home/user/xmpp-opencode-bridge/scripts/run.sh
+WorkingDirectory=/home/user/switch
+ExecStart=/home/user/switch/scripts/run.sh
 Restart=on-failure
 RestartSec=10
 

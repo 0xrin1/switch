@@ -2,7 +2,7 @@
 
 ## Overview
 
-The XMPP-OpenCode Bridge creates a chat-based interface for AI coding assistants. Each conversation session becomes a separate XMPP contact, allowing you to manage multiple concurrent AI conversations from any XMPP client (Conversations, Gajim, Dino, etc.).
+Switch creates a chat-based interface for AI coding assistants. Each conversation session becomes a separate XMPP contact, allowing you to manage multiple concurrent AI conversations from any XMPP client (Conversations, Gajim, Dino, etc.).
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
