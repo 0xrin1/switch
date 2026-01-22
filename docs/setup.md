@@ -1,5 +1,16 @@
 # Setup Guide
 
+## Hardware
+
+This bridge is designed to run on a **dedicated Linux machine** - ideally bare metal so the AI agents have real system access and can do useful work. An old laptop, mini PC, or home server works well.
+
+The machine should have:
+- Full filesystem access for the AI to read/write code
+- Ability to run compilers, tests, docker, etc.
+- Network access for git, package managers, APIs
+
+Running in a VM or container defeats the purpose - you want the AI to operate on a real development environment.
+
 ## Prerequisites
 
 - Python 3.11+
