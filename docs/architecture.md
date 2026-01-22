@@ -8,11 +8,39 @@ The codebase lives at `~/switch`. AI agents working on this project should refer
 
 ```mermaid
 flowchart TB
-    Client["XMPP Client<br/>(Phone/PC)"] <--> Dispatcher["Dispatcher Bot<br/>(oc@...)"]
-    Dispatcher <--> Sessions["Session Bots<br/>(task-name@...)"]
-    Sessions --> OpenCode["OpenCode CLI"]
-    Sessions --> Claude["Claude CLI"]
+    subgraph User["User Devices"]
+        Client["XMPP Client<br/>(Conversations, Gajim, etc.)"]
+    end
+
+    subgraph Tailnet["Tailscale Network"]
+        subgraph DevBox["Development Machine"]
+            XMPP["ejabberd<br/>(XMPP Server)"]
+            Dispatcher["Dispatcher Bot<br/>(oc@...)"]
+            Sessions["Session Bots<br/>(task-name@...)"]
+            OpenCode["OpenCode CLI"]
+            Claude["Claude CLI"]
+        end
+    end
+
+    Client <-->|"Tailscale IP"| XMPP
+    XMPP <--> Dispatcher
+    XMPP <--> Sessions
+    Sessions --> OpenCode
+    Sessions --> Claude
 ```
+
+## Network Topology
+
+Switch runs entirely within a **Tailscale network** (tailnet):
+
+- **XMPP Server (ejabberd)**: Runs on the dev machine, listens on its Tailscale IP
+- **User's XMPP Client**: Connects via Tailscale - no port forwarding or public exposure needed
+- **All bots**: Connect locally to ejabberd on the same machine
+
+This means:
+- You need ejabberd installed and configured on the dev machine
+- Your XMPP client connects to the machine's Tailscale IP (e.g., `100.x.x.x`)
+- Everything stays private within your tailnet
 
 ## Components
 

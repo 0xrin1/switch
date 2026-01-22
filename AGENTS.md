@@ -1,68 +1,112 @@
-# Switch - AI Agent Guide
+# You Are an Agent on a Switch Box
 
-## What This Project Is
+You're an AI agent (Claude Code or OpenCode) spawned by the Switch system. Switch bridges you to the user via XMPP - you're running in a tmux session on a dedicated Linux development machine.
 
-Switch is an XMPP bridge connecting AI coding assistants (Claude Code, OpenCode) to XMPP chat clients. It runs on a dedicated Linux machine and creates separate XMPP contacts for each AI conversation.
+## What You Have Access To
 
-**Tech Stack**: Python 3.11+, slixmpp, SQLite, asyncio, ejabberd
+### This Machine
 
-## Environment
+This box is dedicated to AI development work. You have full access to:
+- Home directory: `~` (your working directory)
+- The Switch system: `~/switch`
+- Any projects the user has here
 
-- Working directory is `~` (home)
-- Switch repo lives at `~/switch`
-- Use `uv run` to execute Python (e.g., `uv run python -m src.bridge`)
-- Use `uv sync` to install dependencies
-- Configuration lives in `.env` (see `.env.example`)
-- Logs go to `~/switch/output/`
-- Database is `~/switch/sessions.db` (SQLite)
+### Your Session Identity
 
-## Code Conventions
+You are an XMPP session. The user sees you as a contact in their chat client. Your session has:
+- A unique name (visible in tmux)
+- An XMPP JID (your identity)
+- A log file at `~/switch/output/<session-name>.log`
 
-### Commands
+### Memory System
 
-Commands use decorator-based registration. To add a new command:
-
-```python
-@command("/mycommand")
-async def mycommand(self, body: str) -> bool:
-    """Docstring describes the command."""
-    self.bot.send_reply("Response")
-    return True
-```
-
-- Use `@command("/name")` for exact match
-- Use `@command("/name", exact=False)` for prefix match
-- Use `@command("/name", "/alias")` for aliases
-
-### Runners
-
-Runners wrap CLI tools (Claude, OpenCode). They:
-- Execute via subprocess with streaming JSON output
-- Parse events and accumulate state
-- Are cancellable via `runner.cancel()`
-
-### Bots
-
-- **DispatcherBot**: Listens on fixed JIDs, creates sessions on message
-- **SessionBot**: One per conversation, routes messages to runners
-
-### Database
-
-Uses repository pattern. Tables defined in `src/db.py`. Access via repository classes, not raw SQL.
-
-## Debugging
+Persistent knowledge across all sessions lives in `~/switch/memory/`:
 
 ```bash
-~/switch/scripts/logs.sh              # Real-time logs
-sqlite3 ~/switch/sessions.db          # Query database
-cat ~/switch/output/<session>.log     # Session-specific log
-tmux attach -t <session>              # Attach to session tmux
+# What topics exist?
+ls ~/switch/memory/
+
+# Search for something
+grep -r "search term" ~/switch/memory/
+
+# Read a specific memory
+cat ~/switch/memory/helius/websocket-keepalive.md
 ```
 
-## Memory
+Write discoveries here so future sessions can learn from them:
 
-Project-specific memory lives in `~/switch/memory/` (gitignored). Use this for persistent notes, decisions, and context that should survive across sessions.
+```bash
+cat > ~/switch/memory/topic/discovery-name.md << 'EOF'
+# What you learned
+...
+EOF
+```
 
-## Skills
+### Session History
 
-Runbooks and reusable procedures live in `~/switch/skills/`. Reference these for common operations.
+See all sessions (past and current):
+
+```bash
+~/switch/scripts/sessions.sh list
+```
+
+Read a session's conversation log:
+
+```bash
+cat ~/switch/output/session-name.log
+```
+
+### Spawn New Sessions
+
+When context gets large or you need to hand off work:
+
+```bash
+cd ~/switch && python scripts/spawn-session.py "HANDOFF: what was done, what's next, key files to read"
+```
+
+The new session appears as a new contact for the user. Always capture discoveries to memory before spawning.
+
+### Close Sessions (not your own)
+
+Clean up stale sessions:
+
+```bash
+# List sessions first
+~/switch/scripts/sessions.sh list
+
+# Close a specific one (sends goodbye message)
+cd ~/switch && python scripts/close-session.py <session-name>
+```
+
+Never close your own session.
+
+### Skills (Runbooks)
+
+Reusable procedures live in `~/switch/skills/`. Check these for common operations:
+
+```bash
+ls ~/switch/skills/
+cat ~/switch/skills/<skill-name>.md
+```
+
+## Quick Reference
+
+| What | Where |
+|------|-------|
+| Memory vault | `~/switch/memory/` |
+| Session logs | `~/switch/output/` |
+| Skills/runbooks | `~/switch/skills/` |
+| List sessions | `~/switch/scripts/sessions.sh list` |
+| Spawn session | `cd ~/switch && python scripts/spawn-session.py "message"` |
+| Close session | `cd ~/switch && python scripts/close-session.py <name>` |
+| Real-time logs | `~/switch/scripts/logs.sh` |
+
+## If You're Working on Switch Itself
+
+The codebase is at `~/switch`. Use `uv run` for Python execution:
+
+```bash
+cd ~/switch && uv run python -m src.bridge
+```
+
+Config is in `.env`. Database is `sessions.db` (SQLite).
