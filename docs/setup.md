@@ -88,9 +88,10 @@ systemctl --user start xmpp-opencode-bridge
 ### Using Scripts
 
 ```bash
-./start.sh   # Start in background
-./stop.sh    # Stop
-./logs.sh    # View logs
+scripts/start.sh   # Start via systemd
+scripts/stop.sh    # Stop
+scripts/logs.sh    # View logs
+scripts/run.sh     # Run directly (not via systemd)
 ```
 
 ## Verification
@@ -102,14 +103,22 @@ systemctl --user start xmpp-opencode-bridge
 
 ## Directory Structure
 
-After running, you'll see:
-
 ```
 xmpp-opencode-bridge/
 ├── bridge.py           # Main application
 ├── utils.py            # XMPP utilities
+├── pyproject.toml      # Dependencies
+├── docs/               # Documentation
+├── scripts/            # Utility scripts
+│   ├── start.sh        # Start via systemd
+│   ├── stop.sh         # Stop service
+│   ├── logs.sh         # View logs
+│   ├── run.sh          # Run directly
+│   ├── sessions.sh     # List/kill sessions
+│   ├── session-shell.sh
+│   ├── spawn-session.py
+│   └── close-session.py
 ├── sessions.db         # SQLite database (created on first run)
 ├── output/             # Session output logs
-│   └── <session>.log
-└── .env                # Configuration
+└── .env                # Configuration (not committed)
 ```

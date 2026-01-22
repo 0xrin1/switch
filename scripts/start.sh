@@ -6,6 +6,6 @@ systemctl --user status xmpp-opencode-bridge.service --no-pager
 
 echo ""
 echo "Commands:"
-echo "  Logs:    ./logs.sh"
-echo "  Stop:    ./stop.sh"
+echo "  Logs:    scripts/logs.sh"
+echo "  Stop:    scripts/stop.sh"
 echo "  Status:  systemctl --user status xmpp-opencode-bridge"

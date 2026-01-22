@@ -1,7 +1,7 @@
 #!/bin/bash
-# Run the XMPP-OpenCode bridge
+# Run the XMPP-OpenCode bridge directly (not via systemd)
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 # Load environment
 if [ -f .env ]; then
@@ -26,14 +26,12 @@ if ! command -v opencode &> /dev/null; then
 fi
 
 if ! command -v opencode &> /dev/null; then
-    echo "Error: opencode command not found"
-    exit 1
+    echo "Warning: opencode command not found (OpenCode sessions won't work)"
 fi
 
 # Check for claude
 if ! command -v claude &> /dev/null; then
-    echo "Error: claude command not found"
-    exit 1
+    echo "Warning: claude command not found (Claude sessions won't work)"
 fi
 
 # Check for tmux
@@ -42,11 +40,5 @@ if ! command -v tmux &> /dev/null; then
     exit 1
 fi
 
-# Install deps if needed
-if ! python3 -c "import slixmpp" 2>/dev/null; then
-    echo "Installing dependencies..."
-    pip install -r requirements.txt
-fi
-
 echo "Starting XMPP-OpenCode bridge..."
-python3 bridge.py
+uv run python bridge.py

@@ -1,7 +1,7 @@
 #!/bin/bash
 # List or manage OpenCode sessions
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 DB="sessions.db"
 
@@ -36,7 +36,7 @@ case "${1:-list}" in
 
         USERNAME=$(echo "$JID" | cut -d@ -f1)
         source .env 2>/dev/null
-        $EJABBERD_CTL unregister "$USERNAME" "your.xmpp.server" 2>/dev/null
+        $EJABBERD_CTL unregister "$USERNAME" "$XMPP_DOMAIN" 2>/dev/null
 
         sqlite3 "$DB" "DELETE FROM sessions WHERE name='$NAME'"
 
