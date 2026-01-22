@@ -169,6 +169,7 @@ def init_db() -> sqlite3.Connection:
             claude_session_id TEXT,
             opencode_session_id TEXT,
             active_engine TEXT DEFAULT 'opencode',
+            opencode_agent TEXT DEFAULT 'bridge',
             model_id TEXT DEFAULT 'openai/gpt-5.2-codex',
             reasoning_mode TEXT DEFAULT 'normal',
             tmux_name TEXT,
@@ -212,6 +213,7 @@ def init_db() -> sqlite3.Connection:
     for column in [
         ("opencode_session_id", "TEXT"),
         ("active_engine", "TEXT DEFAULT 'opencode'"),
+        ("opencode_agent", "TEXT DEFAULT 'bridge'"),
         ("model_id", "TEXT DEFAULT 'openai/gpt-5.2-codex'"),
         ("reasoning_mode", "TEXT DEFAULT 'normal'"),
     ]:
@@ -410,6 +412,7 @@ class OpenCodeRunner:
         session_name: str | None = None,
         model: str | None = None,
         reasoning_mode: str = "normal",
+        agent: str = "bridge",
     ):
         self.working_dir = working_dir
         self.process: asyncio.subprocess.Process | None = None
@@ -417,13 +420,14 @@ class OpenCodeRunner:
         self.output_file: Path | None = None
         self.model = model
         self.reasoning_mode = reasoning_mode
+        self.agent = agent
         if session_name:
             SESSION_OUTPUT_DIR.mkdir(exist_ok=True)
             self.output_file = SESSION_OUTPUT_DIR / f"{session_name}.log"
 
     async def run(self, prompt: str, session_id: str | None = None):
         """Run OpenCode, yielding (event_type, content) tuples."""
-        cmd = ["opencode", "run", "--format", "json", "--agent", "bridge"]
+        cmd = ["opencode", "run", "--format", "json", "--agent", self.agent]
         if session_id:
             cmd.extend(["--session", session_id])
         if self.model:
@@ -437,7 +441,7 @@ class OpenCodeRunner:
         if self.output_file:
             with open(self.output_file, "a") as f:
                 f.write(
-                    f"[{datetime.now().strftime('%H:%M:%S')}] Prompt: {prompt[:100]}...\n"
+                    f"[{datetime.now().strftime('%H:%M:%S')}] Prompt: {prompt}\n"
                 )
 
         start_time = datetime.now()
@@ -637,7 +641,7 @@ class ClaudeRunner:
         if self.output_file:
             with open(self.output_file, "a") as f:
                 f.write(
-                    f"[{datetime.now().strftime('%H:%M:%S')}] Prompt: {prompt[:100]}...\n"
+                    f"[{datetime.now().strftime('%H:%M:%S')}] Prompt: {prompt}\n"
                 )
 
         try:
@@ -1613,7 +1617,8 @@ class SessionBot(BaseXMPPBot):
             claude_session_id = row["claude_session_id"] if row else None
             opencode_session_id = row["opencode_session_id"] if row else None
             active_engine = row["active_engine"] if row else "opencode"
-            model_id = row["model_id"] if row else "openai/gpt-5.2-codex"
+            opencode_agent = row["opencode_agent"] if row else "bridge"
+            model_id = row["model_id"] if row else "glm_gguf/glm-4.7-flash-q8"
 
             self.db.execute(
                 "UPDATE sessions SET last_active = ? WHERE name = ?",
@@ -1697,6 +1702,7 @@ class SessionBot(BaseXMPPBot):
                     session_name=self.session_name,
                     model=model_id,
                     reasoning_mode=row["reasoning_mode"] if row else "normal",
+                    agent=opencode_agent,
                 )
                 accumulated = ""
                 oc_runner = self.runner
@@ -2032,26 +2038,38 @@ class DispatcherBot(BaseXMPPBot):
         self.send_typing()
 
         engine = "opencode"
+        opencode_agent = "bridge"  # default: local GLM 4.7
         message = first_message.strip()
         lowered = message.lower()
+
         if lowered.startswith("@cc"):
             engine = "claude"
             message = message[3:].lstrip()
         elif lowered.startswith("@oc"):
             engine = "opencode"
             message = message[3:].lstrip()
+            # Check for agent variant: @oc gpt ...
+            if message.lower().startswith("gpt "):
+                opencode_agent = "bridge-gpt"
+                message = message[4:].lstrip()
         elif lowered.startswith("/cc"):
             engine = "claude"
             message = message[3:].lstrip()
         elif lowered.startswith("/oc"):
             engine = "opencode"
             message = message[3:].lstrip()
+            if message.lower().startswith("gpt "):
+                opencode_agent = "bridge-gpt"
+                message = message[4:].lstrip()
         elif lowered.startswith("cc "):
             engine = "claude"
             message = message[2:].lstrip()
         elif lowered.startswith("oc "):
             engine = "opencode"
             message = message[2:].lstrip()
+            if message.lower().startswith("gpt "):
+                opencode_agent = "bridge-gpt"
+                message = message[4:].lstrip()
 
         base_name = slugify(message or first_message)
         account = register_unique_account(base_name, self.db)
@@ -2064,7 +2082,13 @@ class DispatcherBot(BaseXMPPBot):
 
         name, password, jid = account
 
-        self.send_reply(f"Creating session: {name}...", recipient=XMPP_RECIPIENT)
+        if engine == "claude":
+            agent_label = "Claude Code"
+        elif opencode_agent == "bridge-gpt":
+            agent_label = "GPT 5.2"
+        else:
+            agent_label = "GLM 4.7"
+        self.send_reply(f"Creating session: {name} ({agent_label})...", recipient=XMPP_RECIPIENT)
 
         recipient_user = XMPP_RECIPIENT.split("@")[0]
         add_roster_subscription(name, XMPP_RECIPIENT, "Clients")
@@ -2073,11 +2097,12 @@ class DispatcherBot(BaseXMPPBot):
         create_tmux_session(name)
 
         now = datetime.now().isoformat()
+        model_id = "openai/gpt-5.2-codex" if opencode_agent == "bridge-gpt" else "glm_gguf/glm-4.7-flash-q8"
         self.db.execute(
             """INSERT INTO sessions
-               (name, xmpp_jid, xmpp_password, tmux_name, created_at, last_active, model_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (name, jid, password, name, now, now, "openai/gpt-5.2-codex"),
+               (name, xmpp_jid, xmpp_password, tmux_name, created_at, last_active, model_id, opencode_agent)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (name, jid, password, name, now, now, model_id, opencode_agent),
         )
         self.db.commit()
 
@@ -2098,7 +2123,7 @@ class DispatcherBot(BaseXMPPBot):
                 await asyncio.sleep(0.1)
 
             bot.send_reply(
-                f"Session '{name}' started. Engine: {engine}. "
+                f"Session '{name}' started ({agent_label}). "
                 f"Processing: {message[:50] or first_message[:50]}..."
             )
             await bot.process_message(message or first_message)

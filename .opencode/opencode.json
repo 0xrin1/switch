@@ -3,9 +3,30 @@
   "agent": {
     "bridge": {
       "mode": "primary",
-      "description": "XMPP bridge agent",
-      "model": "openai/gpt-5.2-codex",
+      "description": "XMPP bridge agent (local GLM 4.7 flash)",
+      "model": "glm_gguf/glm-4.7-flash-q8",
       "default": true,
+      "permission": "allow",
+      "options": {
+        "reasoning": "normal"
+      },
+      "tools": {
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": true,
+        "task": false,
+        "skill": true
+      }
+    },
+    "bridge-gpt": {
+      "mode": "primary",
+      "description": "XMPP bridge agent (GPT 5.2 codex)",
+      "model": "openai/gpt-5.2-codex",
+      "default": false,
       "permission": "allow",
       "options": {
         "reasoning": "normal"
