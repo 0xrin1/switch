@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, cast
 
-from utils import (
+from src.utils import (
     BaseXMPPBot,
     get_xmpp_config,
     load_env,

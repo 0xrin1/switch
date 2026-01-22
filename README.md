@@ -28,7 +28,7 @@ vim ~/AGENTS.md
 ln -s ~/AGENTS.md ~/CLAUDE.md
 
 # Run
-uv run python bridge.py
+uv run python -m src.bridge
 ```
 
 Send a message to `oc@your.server` to create your first session.

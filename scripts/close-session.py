@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from utils import load_env, get_xmpp_config, run_ejabberdctl, BaseXMPPBot
+from src.utils import load_env, get_xmpp_config, run_ejabberdctl, BaseXMPPBot
 
 # Load environment
 load_env()
@@ -26,7 +26,7 @@ XMPP_SERVER = cfg["server"]
 XMPP_DOMAIN = cfg["domain"]
 XMPP_RECIPIENT = cfg["recipient"]
 EJABBERD_CTL = cfg["ejabberd_ctl"]
-DB_PATH = Path(__file__).parent / "sessions.db"
+DB_PATH = Path(__file__).parent.parent / "sessions.db"
 
 
 class ClosureBot(BaseXMPPBot):

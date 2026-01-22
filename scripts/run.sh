@@ -41,4 +41,4 @@ if ! command -v tmux &> /dev/null; then
 fi
 
 echo "Starting XMPP-OpenCode bridge..."
-uv run python bridge.py
+uv run python -m src.bridge

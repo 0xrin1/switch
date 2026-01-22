@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/user/xmpp-opencode-bridge
-ExecStart=/home/user/xmpp-opencode-bridge/run.sh
+ExecStart=/home/user/xmpp-opencode-bridge/scripts/run.sh
 Restart=on-failure
 RestartSec=10
 

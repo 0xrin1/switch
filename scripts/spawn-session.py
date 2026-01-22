@@ -12,7 +12,7 @@ Example:
 import asyncio
 import sys
 
-from utils import load_env, get_xmpp_config, BaseXMPPBot
+from src.utils import load_env, get_xmpp_config, BaseXMPPBot
 
 # Load environment
 load_env()

@@ -99,7 +99,7 @@ ln -s ~/AGENTS.md ~/CLAUDE.md
 ### Direct
 
 ```bash
-uv run python bridge.py
+uv run python -m src.bridge
 ```
 
 ### As systemd Service
@@ -133,19 +133,19 @@ scripts/run.sh     # Run directly (not via systemd)
 
 ```
 xmpp-opencode-bridge/
-├── bridge.py           # Main application
-├── utils.py            # XMPP utilities
-├── pyproject.toml      # Dependencies
-├── docs/               # Documentation
+├── src/                # Main application
+│   ├── bridge.py       # Entry point
+│   └── utils.py        # XMPP utilities
 ├── scripts/            # Utility scripts
 │   ├── start.sh        # Start via systemd
 │   ├── stop.sh         # Stop service
 │   ├── logs.sh         # View logs
 │   ├── run.sh          # Run directly
 │   ├── sessions.sh     # List/kill sessions
-│   ├── session-shell.sh
 │   ├── spawn-session.py
 │   └── close-session.py
+├── docs/               # Documentation
+├── pyproject.toml      # Dependencies
 ├── sessions.db         # SQLite database (created on first run)
 ├── output/             # Session output logs
 └── .env                # Configuration (not committed)
