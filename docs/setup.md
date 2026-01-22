@@ -66,6 +66,23 @@ The bridge creates/deletes XMPP accounts dynamically. Ensure ejabberd allows:
 - Account registration via ejabberdctl
 - Roster manipulation via ejabberdctl
 
+## Agent Instructions
+
+Both Claude Code and OpenCode look for instruction files in the working directory (`CLAUDE_WORKING_DIR`, defaults to `$HOME`).
+
+- **OpenCode** reads `AGENTS.md`
+- **Claude Code** reads `CLAUDE.md`
+
+To share instructions between both backends, create `AGENTS.md` and symlink `CLAUDE.md` to it:
+
+```bash
+# Create your agent instructions
+vim ~/AGENTS.md
+
+# Symlink for Claude Code
+ln -s ~/AGENTS.md ~/CLAUDE.md
+```
+
 ## Running
 
 ### Direct
