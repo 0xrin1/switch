@@ -228,11 +228,8 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             display = output[:4000] + "\n... (truncated)" if len(output) > 4000 else output
             self.send_reply(f"$ {cmd}\n{display}")
 
-            context_msg = (
-                f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```\n"
-                "\n(Just acknowledge briefly - I may ask about this next.)"
-            )
-            await self.process_message(context_msg)
+            context_msg = f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
+            await self.process_message(context_msg, trigger_response=False)
 
         except asyncio.TimeoutError:
             self.send_reply(f"$ {cmd}\n(timed out after 30s)")
@@ -284,10 +281,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
     # Message processing
     # -------------------------------------------------------------------------
 
-    async def process_message(self, body: str):
+    async def process_message(self, body: str, trigger_response: bool = True):
         """Send message to agent and relay response."""
         self.processing = True
-        self.send_typing()
+        if trigger_response:
+            self.send_typing()
 
         try:
             session = self.sessions.get(self.session_name)
@@ -299,6 +297,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             append_to_history(body, self.working_dir, session.claude_session_id)
             log_activity(body, session=self.session_name, source="xmpp")
             self.messages.add(self.session_name, "user", body, session.active_engine)
+
+            if not trigger_response:
+                return
 
             if session.active_engine == "claude":
                 await self._run_claude(body, session)
