@@ -58,6 +58,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self.manager = manager
         self.runner: OpenCodeRunner | ClaudeRunner | None = None
         self.processing = False
+        self.message_queue: asyncio.Queue[str] = asyncio.Queue()
         self.log = logging.getLogger(f"session.{session_name}")
         self.init_ralph(RalphLoopRepository(db))
         self.commands = CommandHandler(self)
@@ -190,17 +191,20 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             self.log.info(f"Answered pending question with: {body[:50]}...")
             return
 
-        # Busy handling
+        # Busy handling - queue messages instead of rejecting
         if self.processing:
             if is_scheduled:
                 return
             if body.startswith("+") and self.manager:
                 await self.spawn_sibling_session(body[1:].strip())
                 return
-            self.send_reply("Still processing... (use +message to spawn sibling session)")
+            # Queue the message for later processing
+            await self.message_queue.put(body)
+            queue_size = self.message_queue.qsize()
+            self.send_reply(f"Queued ({queue_size} pending)")
             return
 
-        await self.process_message(body)
+        await self._process_with_queue(body)
 
     # -------------------------------------------------------------------------
     # Shell commands
@@ -280,6 +284,23 @@ class SessionBot(RalphMixin, BaseXMPPBot):
     # -------------------------------------------------------------------------
     # Message processing
     # -------------------------------------------------------------------------
+
+    async def _process_with_queue(self, body: str):
+        """Process a message and then drain any queued messages."""
+        await self.process_message(body)
+
+        # Process any queued messages
+        while not self.message_queue.empty():
+            try:
+                next_body = self.message_queue.get_nowait()
+                queue_remaining = self.message_queue.qsize()
+                if queue_remaining > 0:
+                    self.send_reply(f"Processing queued message ({queue_remaining} remaining)...")
+                else:
+                    self.send_reply("Processing queued message...")
+                await self.process_message(next_body)
+            except asyncio.QueueEmpty:
+                break
 
     async def process_message(self, body: str, trigger_response: bool = True):
         """Send message to agent and relay response."""
