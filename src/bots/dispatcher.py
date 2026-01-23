@@ -217,16 +217,20 @@ class DispatcherBot(BaseXMPPBot):
             agent="bridge",
         )
 
-        response_text = ""
+        result_text = ""
         async for event_type, data in runner.run(prompt):
-            if event_type == "text":
-                response_text += data
+            if event_type == "result":
+                result_text = data.text if hasattr(data, "text") else ""
             elif event_type == "error":
                 self.send_reply(f"Error: {data}", recipient=self.xmpp_recipient)
                 return
 
-        if response_text:
-            self.send_reply(response_text.strip(), recipient=self.xmpp_recipient)
+        # Strip echoed prompt from response if present
+        if result_text.startswith(prompt):
+            result_text = result_text[len(prompt):].lstrip()
+
+        if result_text:
+            self.send_reply(result_text.strip(), recipient=self.xmpp_recipient)
         else:
             self.send_reply("Done (no output)", recipient=self.xmpp_recipient)
 
