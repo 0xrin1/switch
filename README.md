@@ -1,5 +1,12 @@
 # Switch
 
+```mermaid
+flowchart LR
+    Phone --> Server[Chat Server]
+    Computer --> Server
+    Server --> Agents[AI Agents]
+```
+
 Chat with AI coding assistants from any XMPP client. Each conversation becomes a separate contact, making it easy to manage multiple concurrent sessions from your phone or desktop.
 
 Designed to run on a dedicated Linux machine (old laptop, mini PC, home server) so the AI has real system access to do useful work.
