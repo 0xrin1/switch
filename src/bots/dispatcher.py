@@ -178,27 +178,47 @@ class DispatcherBot(BaseXMPPBot):
 
     async def _cmd_commit(self, arg: str) -> None:
         if not arg:
-            self.send_reply("Usage: /commit <repo>", recipient=self.xmpp_recipient)
+            self.send_reply(
+                "Usage: /commit <repo> or /commit <host>:<repo>",
+                recipient=self.xmpp_recipient,
+            )
             return
 
-        repo_path = Path.home() / arg.strip()
-        if not (repo_path / ".git").exists():
-            self.send_reply(f"Not a git repo: {repo_path}", recipient=self.xmpp_recipient)
-            return
+        arg = arg.strip()
 
-        self.send_reply(f"Committing {arg}...", recipient=self.xmpp_recipient)
+        # Check for host:path syntax (e.g., helga:moonshot-v2)
+        if ":" in arg and not arg.startswith("/"):
+            host, repo = arg.split(":", 1)
+            repo_path = f"~/{repo}" if not repo.startswith("/") else repo
+
+            self.send_reply(f"Committing {repo} on {host}...", recipient=self.xmpp_recipient)
+
+            prompt = (
+                f"This project is on remote host '{host}'. "
+                f"Use `ssh {host} 'cd {repo_path} && <command>'` for all git operations. "
+                f"Please check git status, commit any changes with a good message, and push."
+            )
+            working_dir = str(Path.home())  # run locally, SSH handles remote
+        else:
+            # Local repo
+            repo_path = Path.home() / arg
+            if not (repo_path / ".git").exists():
+                self.send_reply(f"Not a git repo: {repo_path}", recipient=self.xmpp_recipient)
+                return
+
+            self.send_reply(f"Committing {arg}...", recipient=self.xmpp_recipient)
+            prompt = f"please commit and push the working changes in {repo_path}"
+            working_dir = str(repo_path)
 
         runner = OpenCodeRunner(
-            working_dir=str(repo_path),
+            working_dir=working_dir,
             output_dir=Path(self.working_dir) / "output",
             model="glm_vllm/glm-4.7-flash",
-            agent="coder",
+            agent="bridge",
         )
 
         response_text = ""
-        async for event_type, data in runner.run(
-            f"please commit and push the working changes in {repo_path}"
-        ):
+        async for event_type, data in runner.run(prompt):
             if event_type == "text":
                 response_text += data
             elif event_type == "error":
@@ -221,7 +241,7 @@ class DispatcherBot(BaseXMPPBot):
             "  /list - show sessions\n"
             "  /recent - recent with status\n"
             "  /kill <name> - end session\n"
-            "  /commit <repo> - commit and push\n"
+            "  /commit [host:]<repo> - commit and push\n"
             "  /help - this message",
             recipient=self.xmpp_recipient,
         )
