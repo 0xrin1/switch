@@ -300,6 +300,7 @@ class OpenCodeRunner(BaseRunner):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=self.working_dir,
+                limit=10 * 1024 * 1024,  # 10MB buffer limit to handle large JSON lines
             )
 
             if self.process.stdout is None:

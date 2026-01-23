@@ -50,21 +50,32 @@ Sessions appear as separate contacts (e.g., `fix-auth-bug@...`) so you can have 
 ```mermaid
 flowchart LR
     You --> Client[XMPP Client]
-    subgraph Contacts["XMPP Contacts"]
+    subgraph Orchestrators["Orchestrator Contacts"]
         direction TB
         cc["cc@..."]
         oc["oc@..."]
         ocgpt["oc-gpt@..."]
-        Sessions["Session contacts<br/>(fix-auth-bug@..., add-tests@...)"]
+    end
+
+    subgraph Sessions["Session Contacts"]
+        direction TB
+        s1["fix-auth-bug@..."]
+        s2["add-tests@..."]
+        s3["refactor-db@..."]
     end
 
     Client --> cc
     Client --> oc
     Client --> ocgpt
     Client --> Sessions
-    cc --> Claude[Claude Code CLI]
+
+    cc --> Claude[Claude Code]
     oc --> GLM["OpenCode (GLM 4.7)"]
     ocgpt --> GPT["OpenCode (GPT 5.2)"]
+
+    s1 --> Claude
+    s2 --> GLM
+    s3 --> Claude
 ```
 
 ## Basic Usage
