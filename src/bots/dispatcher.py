@@ -199,7 +199,7 @@ class DispatcherBot(BaseXMPPBot):
         add_roster_subscription(recipient_user, jid, "Sessions", self.ejabberd_ctl, self.xmpp_domain)
         create_tmux_session(name, self.working_dir)
 
-        model_id = "openai/gpt-5.2-codex" if self.opencode_agent == "bridge-gpt" else "glm_gguf/glm-4.7-flash-q8"
+        model_id = "openai/gpt-5.2-codex" if self.opencode_agent == "bridge-gpt" else "glm_vllm/glm-4.7-flash"
         self.sessions.create(
             name=name, xmpp_jid=jid, xmpp_password=password, tmux_name=name,
             model_id=model_id, opencode_agent=self.opencode_agent or "bridge",

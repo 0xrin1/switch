@@ -3,12 +3,12 @@
   "agent": {
     "bridge": {
       "mode": "primary",
-      "description": "XMPP bridge agent (local GLM 4.7 flash)",
-      "model": "glm_gguf/glm-4.7-flash-q8",
+      "description": "XMPP bridge agent (GLM 4.7 flash via vLLM)",
+      "model": "glm_vllm/glm-4.7-flash",
       "default": true,
       "permission": "allow",
       "options": {
-        "reasoning": "high"
+        "reasoning": "none"
       },
       "tools": {
         "bash": true,
