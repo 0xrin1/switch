@@ -111,7 +111,7 @@ class OpenCodeRunner(BaseRunner):
         text = part.get("text", "") if isinstance(part, dict) else ""
         if isinstance(text, str) and text:
             state.text += text
-            self._log_to_file(f"\n[TEXT]\n{text}\n")
+            self._log_response(text)
             return ("text", text)
         return None
 

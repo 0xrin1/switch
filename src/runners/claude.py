@@ -72,7 +72,7 @@ class ClaudeRunner(BaseRunner):
         if not text:
             return None
         state.text = text
-        self._log_to_file(f"\n[TEXT]\n{text}\n")
+        self._log_response(text)
         return ("text", text)
 
     def _handle_assistant_tool(self, block: dict, state: RunState) -> Event | None:
