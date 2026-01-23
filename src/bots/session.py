@@ -503,36 +503,48 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         tool_summaries: list[str] = []
         accumulated = ""
         last_progress_at = 0
+        event_count = 0
 
-        async for event_type, content in self.runner.run(
-            body, session.opencode_session_id
-        ):
-            if event_type == "session_id":
-                self.sessions.update_opencode_session_id(self.session_name, content)
-            elif event_type == "text" and isinstance(content, str):
-                accumulated += content
-                response_parts = [accumulated]
-            elif event_type == "tool" and isinstance(content, str):
-                tool_summaries.append(content)
-                if len(tool_summaries) - last_progress_at >= 8:
-                    last_progress_at = len(tool_summaries)
-                    self.send_reply(f"... {' '.join(tool_summaries[-3:])}")
-            elif event_type == "question" and isinstance(content, Question):
-                # Question is being handled by callback, just log it
-                self.log.info(f"Question asked: {content.request_id}")
-            elif event_type == "result" and isinstance(content, OpenCodeResult):
-                stats = (
-                    f"[{content.tokens_in}/{content.tokens_out} tok"
-                    f" r{content.tokens_reasoning} c{content.tokens_cache_read}/{content.tokens_cache_write}"
-                    f" ${content.cost:.3f} {content.duration_s:.1f}s]"
-                )
-                self._send_result(
-                    tool_summaries, response_parts, stats, session.active_engine
-                )
-            elif event_type == "error":
-                self.send_reply(f"Error: {content}")
-            elif event_type == "cancelled":
-                self.send_reply("Cancelled.")
+        self.log.info(f"Starting OpenCode run for: {body[:50]}...")
+        try:
+            async for event_type, content in self.runner.run(
+                body, session.opencode_session_id
+            ):
+                event_count += 1
+                self.log.debug(f"OpenCode event #{event_count}: {event_type}")
+
+                if event_type == "session_id":
+                    self.sessions.update_opencode_session_id(self.session_name, content)
+                elif event_type == "text" and isinstance(content, str):
+                    accumulated += content
+                    response_parts = [accumulated]
+                elif event_type == "tool" and isinstance(content, str):
+                    tool_summaries.append(content)
+                    if len(tool_summaries) - last_progress_at >= 8:
+                        last_progress_at = len(tool_summaries)
+                        self.send_reply(f"... {' '.join(tool_summaries[-3:])}")
+                elif event_type == "question" and isinstance(content, Question):
+                    # Question is being handled by callback, just log it
+                    self.log.info(f"Question asked: {content.request_id}")
+                elif event_type == "result" and isinstance(content, OpenCodeResult):
+                    stats = (
+                        f"[{content.tokens_in}/{content.tokens_out} tok"
+                        f" r{content.tokens_reasoning} c{content.tokens_cache_read}/{content.tokens_cache_write}"
+                        f" ${content.cost:.3f} {content.duration_s:.1f}s]"
+                    )
+                    self._send_result(
+                        tool_summaries, response_parts, stats, session.active_engine
+                    )
+                elif event_type == "error":
+                    self.log.warning(f"OpenCode error event: {content}")
+                    self.send_reply(f"Error: {content}")
+                elif event_type == "cancelled":
+                    self.send_reply("Cancelled.")
+
+            self.log.info(f"OpenCode run completed after {event_count} events")
+        except Exception as e:
+            self.log.exception(f"Exception in _run_opencode loop: {e}")
+            self.send_reply(f"Error during OpenCode run: {e}")
 
     def _create_question_callback(self):
         """Create a callback for handling AI questions via XMPP."""

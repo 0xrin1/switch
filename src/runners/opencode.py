@@ -332,8 +332,10 @@ class OpenCodeRunner(BaseRunner):
             if self.question_callback:
                 question_poll_task = asyncio.create_task(poll_questions_loop())
 
+            event_count = 0
             async for raw_line in self.process.stdout:
                 if self._cancelled:
+                    log.info("OpenCode cancelled, breaking stdout loop")
                     break
 
                 line = raw_line.decode().strip()
@@ -343,14 +345,18 @@ class OpenCodeRunner(BaseRunner):
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
+                    log.warning(f"OpenCode non-JSON output: {line[:100]}")
                     if len(state.raw_output) < 5:
                         state.raw_output.append(line)
                     continue
 
                 if isinstance(event, dict):
+                    event_count += 1
+                    event_type_raw = event.get("type", "unknown")
                     result = self._parse_event(event, state)
                     if result:
                         event_type, data = result
+                        log.debug(f"OpenCode event #{event_count}: {event_type}")
 
                         # Handle questions inline if we see them in stdout
                         if event_type == "question" and isinstance(data, Question):
@@ -365,16 +371,23 @@ class OpenCodeRunner(BaseRunner):
                         else:
                             yield result
 
+            log.info(f"OpenCode stdout loop ended after {event_count} events, waiting for process...")
             await self.process.wait()
+            log.info(f"OpenCode process exited with code {self.process.returncode}, saw_result={state.saw_result}, saw_error={state.saw_error}")
 
             if self.process.returncode and self.process.returncode != 0:
                 state.saw_error = True
+                log.warning(f"OpenCode exited with non-zero code: {self.process.returncode}")
 
             if not state.saw_result and not state.saw_error:
+                log.warning(f"OpenCode ended without result or error, yielding fallback (tool_count={state.tool_count}, text_len={len(state.text)})")
                 yield self._make_fallback_error(state)
 
+        except asyncio.CancelledError:
+            log.info("OpenCode runner was cancelled")
+            yield ("cancelled", "OpenCode was cancelled")
         except Exception as e:
-            log.exception("OpenCode runner error")
+            log.exception(f"OpenCode runner exception: {type(e).__name__}: {e}")
             yield ("error", str(e))
 
         finally:
