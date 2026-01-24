@@ -39,9 +39,11 @@ Present this template to the user and fill it out together:
 
 After filling this out, ask:
 
-    Save discoveries to @memory? (for future sessions)
+    Save discoveries to memory? (for future sessions)
 
-If yes, use @memory to persist the discoveries before spawning.
+If yes, use the memory skills to persist discoveries before spawning:
+- See `~/switch/skills/write-memory.md` for how to write
+- See `~/switch/skills/read-memory.md` for how to read
 
 ## Script Location
 
@@ -49,13 +51,13 @@ If yes, use @memory to persist the discoveries before spawning.
 
 ## Usage
 
-    cd ~/switch && python scripts/spawn-session.py "<handoff message>"
+    cd ~/switch && PYTHONPATH=. uv run python scripts/spawn-session.py "<handoff message>"
 
 ## Formatting the Handoff Message
 
 Combine the template into a single message for the new session:
 
-    cd ~/switch && python scripts/spawn-session.py "HANDOFF FROM PREVIOUS SESSION
+    cd ~/switch && PYTHONPATH=. uv run python scripts/spawn-session.py "HANDOFF FROM PREVIOUS SESSION
 
     COMPLETED
     - Implemented X in src/foo.py
@@ -81,16 +83,24 @@ Combine the template into a single message for the new session:
 
 For straightforward handoffs without much context:
 
-    cd ~/switch && python scripts/spawn-session.py "Continue [project].
+    cd ~/switch && PYTHONPATH=. uv run python scripts/spawn-session.py "Continue [project].
 
     Done: [brief summary]
     Next: [what to do]
     Start with: [file or command]"
 
+## Dispatchers
+
+Three dispatchers are available:
+- `cc@` - Claude Code (default)
+- `oc@` - OpenCode
+- `oc-gpt@` - OpenCode with GPT
+
+Use `cc@` unless otherwise specified. To spawn to a different dispatcher, message that dispatcher's JID directly instead of the default.
+
 ## Important Notes
 
 - New session appears as new contact in Siskin
-- Sessions default to OpenCode; switch with /agent cc if needed
 - This session continues until explicitly closed
 - User gets notified of new session
-- ALWAYS capture discoveries before spawning - they're lost otherwise
+- ALWAYS capture discoveries to memory before spawning - they're lost otherwise (see memory skills)
