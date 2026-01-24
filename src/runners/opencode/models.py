@@ -32,5 +32,6 @@ class Question:
 
 Event = tuple[str, str | OpenCodeResult | Question]
 
-# Type for question callback: receives Question, returns answers dict
-QuestionCallback = Callable[[Question], Awaitable[dict[str, list[str]]]]
+# Type for question callback: receives Question, returns answers array
+# Each answer is a list of selected option labels (one per question, positional)
+QuestionCallback = Callable[[Question], Awaitable[list[list[str]]]]

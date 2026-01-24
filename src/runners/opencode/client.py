@@ -109,7 +109,7 @@ class OpenCodeClient:
         self,
         session: aiohttp.ClientSession,
         question: Question,
-        answers: dict[str, list[str]],
+        answers: list[list[str]],
     ) -> bool:
         url = self._make_url(f"/question/{question.request_id}/reply")
         try:

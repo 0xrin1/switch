@@ -131,17 +131,17 @@ class ClaudeRunner(BaseRunner):
             + usage.get("output_tokens", 0)
         )
 
-        # Find context window from model usage
+        # Find context window and model name from model usage
         context_window = 200000
-        for model_name, model_data in event.get("modelUsage", {}).items():
-            if "opus" in model_name:
-                context_window = model_data.get("contextWindow", 200000)
-                break
+        model_name = "claude"
+        for name, model_data in event.get("modelUsage", {}).items():
+            model_name = name
             context_window = model_data.get("contextWindow", context_window)
+            break  # Use the first (usually only) model
 
         tokens_k = total_tokens / 1000
         context_k = context_window / 1000
-        summary = f"[{turns}t {state.tool_count}tools ${cost:.3f} {duration:.1f}s | {tokens_k:.1f}k/{context_k:.0f}k]"
+        summary = f"[{model_name} {turns}t {state.tool_count}tools ${cost:.3f} {duration:.1f}s | {tokens_k:.1f}k/{context_k:.0f}k]"
 
         return ("result", summary)
 

@@ -527,8 +527,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                     # Question is being handled by callback, just log it
                     self.log.info(f"Question asked: {content.request_id}")
                 elif event_type == "result" and isinstance(content, OpenCodeResult):
+                    model_short = session.model_id.split("/")[-1] if session.model_id else "?"
                     stats = (
-                        f"[{content.tokens_in}/{content.tokens_out} tok"
+                        f"[{model_short} {content.tokens_in}/{content.tokens_out} tok"
                         f" r{content.tokens_reasoning} c{content.tokens_cache_read}/{content.tokens_cache_write}"
                         f" ${content.cost:.3f} {content.duration_s:.1f}s]"
                     )
@@ -550,7 +551,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         """Create a callback for handling AI questions via XMPP."""
         pending_answers: dict[str, asyncio.Future] = {}
 
-        async def question_callback(question: Question) -> dict[str, list[str]]:
+        async def question_callback(question: Question) -> list[list[str]]:
             """Handle a question from the AI by asking the user via XMPP."""
             # Format the question for display
             question_text = self._format_question(question)
@@ -568,12 +569,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             try:
                 # Wait for user response with timeout
                 answer = await asyncio.wait_for(future, timeout=300)  # 5 min timeout
-                # Parse the answer - for now just use it as the first answer
-                return (
-                    {question.questions[0]["question"]: [answer]}
-                    if question.questions
-                    else {}
-                )
+                # Return one answer array per question (positional, in order)
+                # For now we only support answering the first question
+                return [[answer]] if question.questions else []
             except asyncio.TimeoutError:
                 self.send_reply("[Question timed out - proceeding without answer]")
                 raise
