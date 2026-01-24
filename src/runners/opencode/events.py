@@ -3,17 +3,54 @@
 from __future__ import annotations
 
 
-def extract_session_id(payload: dict) -> str | None:
+def _find_session_id_in_dict(d: dict) -> str | None:
+    """Check a dict for sessionID/sessionId/session_id keys."""
     for key in ("sessionID", "sessionId", "session_id"):
-        value = payload.get(key)
+        value = d.get(key)
         if isinstance(value, str) and value:
             return value
+    return None
+
+
+def extract_session_id(payload: dict) -> str | None:
+    """Extract session ID from various event structures.
+
+    OpenCode GlobalBus wraps events as:
+    {"directory": "...", "payload": {"type": "...", "properties": {"sessionID": "..."}}}
+
+    For part events, sessionID is inside the part object:
+    {"payload": {"properties": {"part": {"sessionID": "..."}}}}
+
+    We check multiple nesting levels to handle all cases.
+    """
+    # Check top level
+    if result := _find_session_id_in_dict(payload):
+        return result
+
+    # Check payload.properties (direct event structure)
     props = payload.get("properties")
     if isinstance(props, dict):
-        for key in ("sessionID", "sessionId", "session_id"):
-            value = props.get(key)
-            if isinstance(value, str) and value:
-                return value
+        if result := _find_session_id_in_dict(props):
+            return result
+        # Check payload.properties.part (part events)
+        part = props.get("part")
+        if isinstance(part, dict):
+            if result := _find_session_id_in_dict(part):
+                return result
+
+    # Check payload.payload.properties (GlobalBus wrapped structure)
+    inner_payload = payload.get("payload")
+    if isinstance(inner_payload, dict):
+        inner_props = inner_payload.get("properties")
+        if isinstance(inner_props, dict):
+            if result := _find_session_id_in_dict(inner_props):
+                return result
+            # Check payload.payload.properties.part (wrapped part events)
+            inner_part = inner_props.get("part")
+            if isinstance(inner_part, dict):
+                if result := _find_session_id_in_dict(inner_part):
+                    return result
+
     return None
 
 
