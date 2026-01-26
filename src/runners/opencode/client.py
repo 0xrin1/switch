@@ -149,19 +149,29 @@ class OpenCodeClient:
         urls = [self._make_url("/event"), self._make_url("/global/event")]
         headers = {"Accept": "text/event-stream"}
 
+        last_exc: Exception | None = None
+
         for url in urls:
             try:
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 404:
                         continue
                     if resp.status >= 400:
-                        raise RuntimeError(f"OpenCode SSE HTTP {resp.status}")
+                        detail = (await resp.text()).strip() or resp.reason
+                        raise RuntimeError(f"OpenCode SSE HTTP {resp.status}: {detail}")
                     await self.read_sse_stream(resp, queue, should_stop=should_stop)
                     return
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                log.debug(f"SSE connect failed for {url}: {e}")
+                last_exc = e
+                # This is a critical reliability issue; surface it at normal log level.
+                log.warning(f"OpenCode SSE connect failed for {url}: {type(e).__name__}: {e}")
+
+        if last_exc:
+            raise RuntimeError(
+                f"Failed to connect to OpenCode SSE stream (last error: {type(last_exc).__name__}: {last_exc})"
+            ) from last_exc
         raise RuntimeError("Failed to connect to OpenCode SSE stream")
 
     async def read_sse_stream(

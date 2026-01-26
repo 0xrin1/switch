@@ -12,4 +12,5 @@ __pycache__/
 .Python
 *.log
 .venv/
+.venv-precommit/
 uv.lock

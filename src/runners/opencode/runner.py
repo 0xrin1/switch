@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -95,8 +97,69 @@ class OpenCodeRunner(BaseRunner):
         tool_state = part.get("state", {})
         title = tool_state.get("title") if isinstance(tool_state, dict) else None
         desc = f"[tool:{tool} {title}]" if title else f"[tool:{tool}]"
+
+        # Optional: include tool input payload (e.g., bash command) in logs.
+        if os.getenv("SWITCH_LOG_TOOL_INPUT", "").lower() in {"1", "true", "yes"}:
+            raw_input: object | None = None
+            if isinstance(tool_state, dict):
+                raw_input = tool_state.get("input") or tool_state.get("args")
+            if raw_input is None:
+                raw_input = part.get("input") or part.get("args")
+
+            formatted = self._format_tool_input(tool, raw_input)
+            if formatted:
+                max_len = int(os.getenv("SWITCH_LOG_TOOL_INPUT_MAX", "2000"))
+                formatted = formatted[:max_len]
+                self._log_to_file(f"{desc}\n  input: {formatted}\n")
+                return ("tool", f"{desc} input: {formatted}")
+
         self._log_to_file(f"{desc}\n")
         return ("tool", desc)
+
+    _REDACT_KEYS = ("key", "token", "secret", "password", "auth", "cookie")
+
+    def _redact_tool_input(self, obj: object) -> object:
+        if isinstance(obj, dict):
+            out: dict[object, object] = {}
+            for k, v in obj.items():
+                ks = str(k).lower()
+                if any(rk in ks for rk in self._REDACT_KEYS):
+                    out[k] = "[REDACTED]"
+                else:
+                    out[k] = self._redact_tool_input(v)
+            return out
+        if isinstance(obj, list):
+            return [self._redact_tool_input(x) for x in obj]
+        return obj
+
+    def _format_tool_input(self, tool: str, raw_input: object) -> str | None:
+        if raw_input is None:
+            return None
+
+        # Prefer a useful preview for common tools.
+        if tool == "bash" and isinstance(raw_input, dict):
+            cmd = raw_input.get("command")
+            if isinstance(cmd, str) and cmd.strip():
+                return cmd.strip()
+
+        if tool in {"read", "write", "edit"} and isinstance(raw_input, dict):
+            fp = raw_input.get("filePath") or raw_input.get("file_path")
+            if isinstance(fp, str) and fp:
+                return fp
+
+        if tool == "grep" and isinstance(raw_input, dict):
+            pat = raw_input.get("pattern")
+            inc = raw_input.get("include")
+            if isinstance(pat, str) and pat:
+                suffix = f" include={inc!r}" if isinstance(inc, str) and inc else ""
+                return f"pattern={pat!r}" + suffix
+
+        # Fallback: JSON (redacted) for everything else.
+        try:
+            redacted = self._redact_tool_input(raw_input)
+            return json.dumps(redacted, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            return str(raw_input)
 
     def _handle_step_finish(self, event: dict, state: RunState) -> Event | None:
         """Handle step_finish event - accumulates tokens/cost, emits result on stop."""
