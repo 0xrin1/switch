@@ -317,6 +317,9 @@ class DispatcherBot(BaseXMPPBot):
                 f"Session '{name}' ({self.label}). Processing: {message[:50]}..."
             )
             await bot.process_message(message or first_message)
+
+            # Let directory clients refresh the Individuals column.
+            self.manager.notify_directory_sessions_changed(dispatcher_jid=str(self.boundjid.bare))
         else:
             self.send_reply(
                 f"Failed to start bot for {name}", recipient=self.xmpp_recipient

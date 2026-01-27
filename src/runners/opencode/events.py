@@ -55,6 +55,13 @@ def extract_session_id(payload: dict) -> str | None:
 
 
 def coerce_event(payload: dict) -> dict | None:
+    # OpenCode GlobalBus SSE wraps events as:
+    # {"directory": "...", "payload": {"type": "...", "properties": {...}}}
+    # Unwrap so downstream normalization works regardless of endpoint.
+    inner = payload.get("payload")
+    if isinstance(inner, dict) and isinstance(inner.get("type"), str):
+        payload = inner
+
     if "type" in payload and "part" in payload:
         return payload
 
@@ -62,7 +69,11 @@ def coerce_event(payload: dict) -> dict | None:
     if not isinstance(event_type, str):
         return None
 
-    props = payload.get("properties") if isinstance(payload.get("properties"), dict) else None
+    props = (
+        payload.get("properties")
+        if isinstance(payload.get("properties"), dict)
+        else None
+    )
 
     if props:
         # OpenCode server mode tends to emit message events instead of raw "text"

@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 
 from src.db import init_db
+from src.helpers import create_xmpp_account
 from src.manager import SessionManager
 from src.utils import get_xmpp_config, load_env
 
@@ -36,6 +37,8 @@ _cfg = get_xmpp_config()
 XMPP_SERVER = _cfg["server"]
 XMPP_DOMAIN = _cfg["domain"]
 XMPP_RECIPIENT = _cfg["recipient"]
+PUBSUB_SERVICE = _cfg["pubsub_service"]
+DIRECTORY_CFG = _cfg["directory"]
 EJABBERD_CTL = _cfg["ejabberd_ctl"]
 DISPATCHERS = _cfg["dispatchers"]
 WORKING_DIR = os.getenv("SWITCH_WORKING_DIR", str(Path.home()))
@@ -61,6 +64,25 @@ async def main():
         ejabberd_ctl=EJABBERD_CTL,
         dispatchers_config=DISPATCHERS,
     )
+
+    # Start directory service (XEP-0030 + pubsub refresh).
+    try:
+        directory_jid = DIRECTORY_CFG.get("jid")
+        directory_password = DIRECTORY_CFG.get("password")
+        if directory_jid and directory_password:
+            if DIRECTORY_CFG.get("autocreate"):
+                username = directory_jid.split("@")[0]
+                # Best-effort: if account already exists, ejabberd will return conflict.
+                create_xmpp_account(username, directory_password, EJABBERD_CTL, XMPP_DOMAIN, log)
+            await manager.start_directory_service(
+                jid=directory_jid,
+                password=directory_password,
+                pubsub_service_jid=PUBSUB_SERVICE,
+            )
+        else:
+            log.info("Directory service disabled (missing SWITCH_DIRECTORY_JID/PASSWORD)")
+    except Exception:
+        log.exception("Failed to start directory service")
     await manager.restore_sessions()
     await manager.start_dispatchers()
 

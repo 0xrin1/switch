@@ -8,7 +8,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from src.bots import DispatcherBot, SessionBot
+from src.bots import DirectoryBot, DispatcherBot, SessionBot
 from src.db import SessionRepository
 from src.helpers import (
     add_roster_subscription,
@@ -47,6 +47,32 @@ class SessionManager:
         self.dispatchers_config = dispatchers_config
         self.session_bots: dict[str, SessionBot] = {}
         self.dispatchers: dict[str, DispatcherBot] = {}
+        self.directory: DirectoryBot | None = None
+
+    async def start_directory_service(
+        self, *, jid: str, password: str, pubsub_service_jid: str
+    ):
+        """Start the Switch directory service bot."""
+        directory = DirectoryBot(
+            jid,
+            password,
+            db=self.db,
+            xmpp_domain=self.xmpp_domain,
+            dispatchers_config=self.dispatchers_config,
+            pubsub_service_jid=pubsub_service_jid,
+        )
+        directory.connect_to_server(self.xmpp_server)
+        self.directory = directory
+        log.info(f"Started directory service: {jid} (pubsub={pubsub_service_jid})")
+
+    def notify_directory_sessions_changed(self, dispatcher_jid: str | None = None) -> None:
+        """Best-effort pubsub ping so clients refresh hierarchy."""
+        if not self.directory:
+            return
+        try:
+            self.directory.notify_sessions_changed(dispatcher_jid=dispatcher_jid)
+        except Exception:
+            pass
 
     async def start_session_bot(self, name: str, jid: str, password: str) -> SessionBot:
         """Start a session bot."""
@@ -118,6 +144,9 @@ class SessionManager:
         kill_tmux_session(name)
         self.sessions.close(name)
         self.session_bots.pop(name, None)
+
+        # Notify directory clients that session lists changed.
+        self.notify_directory_sessions_changed()
         return True
 
     async def start_dispatchers(self):
