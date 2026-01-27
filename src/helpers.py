@@ -144,10 +144,16 @@ def tmux_session_exists(name: str) -> bool:
 
 
 def create_tmux_session(name: str, working_dir: str) -> bool:
-    """Create a new tmux session with interactive shell."""
+    """Create a new tmux session that tails the session log."""
     if tmux_session_exists(name):
         return True
-    script_path = Path(__file__).parent / "session-shell.sh"
+
+    # scripts/session-shell.sh is the tmux pane entrypoint.
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "session-shell.sh"
+    if not script_path.exists():
+        return False
+
     result = subprocess.run(
         [
             "tmux",
@@ -162,7 +168,12 @@ def create_tmux_session(name: str, working_dir: str) -> bool:
         ],
         capture_output=True,
     )
-    return result.returncode == 0
+
+    if result.returncode != 0:
+        return False
+
+    # tmux can return success even if the command immediately exits; ensure session exists.
+    return tmux_session_exists(name)
 
 
 def kill_tmux_session(name: str) -> bool:

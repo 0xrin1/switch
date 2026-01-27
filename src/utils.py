@@ -140,7 +140,7 @@ class BaseXMPPBot(ClientXMPP):
         self.enable_starttls = False
         self.enable_direct_tls = False
         self.enable_plaintext = True
-        self.connect(server, port)
+        self.connect((server, port))
 
     def set_connected(self, connected: bool) -> None:
         if connected:

@@ -132,6 +132,8 @@ class SessionManager:
         """Restore existing sessions from DB."""
         active = self.sessions.list_active()
         for session in active:
+            # Ensure the session has a tmux pane tailing its log.
+            create_tmux_session(session.name, self.working_dir)
             await self.start_session_bot(
                 session.name, session.xmpp_jid, session.xmpp_password
             )

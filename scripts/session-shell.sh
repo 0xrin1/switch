@@ -3,7 +3,11 @@
 # Usage: session-shell.sh <session-name>
 
 SESSION_NAME="$1"
-LOG_DIR="$HOME/switch/output"
+
+# Logs live in the repo's ./output directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOG_DIR="$REPO_ROOT/output"
 LOG_FILE="$LOG_DIR/$SESSION_NAME.log"
 
 if [ -z "$SESSION_NAME" ]; then
@@ -26,4 +30,4 @@ echo "Tailing: $LOG_FILE"
 echo "(Ctrl+C to exit tmux pane)"
 echo ""
 
-exec tail -n 200 -f "$LOG_FILE"
+exec tail -n 200 -F "$LOG_FILE"
