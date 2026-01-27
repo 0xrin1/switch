@@ -42,17 +42,21 @@ flowchart LR
 ```
 <!-- /DIAGRAM:system -->
 
-Chat with AI coding assistants from any XMPP client. Each conversation becomes a separate contact, making it easy to manage multiple concurrent sessions from your phone or desktop.
+Chat with AI coding assistants from any open source chat app. Each conversation becomes a separate contact, making it easy to manage multiple concurrent sessions from your phone or desktop.
+
+Under the hood, Switch uses **XMPP** — an open chat protocol (the same one that powers Google Talk, WhatsApp's backend, etc.). You don't need to know or care about the protocol. All it means in practice is that you pick a free, open source chat app — [Conversations](https://conversations.im/) on Android, [Monal](https://monal-im.org/) on iOS, [Gajim](https://gajim.org/) or [Dino](https://dino.im/) on desktop — and your AI sessions show up as contacts, just like talking to a friend.
+
+No vendor lock-in. No proprietary client. Just a normal chat app you already know how to use.
 
 Designed to run on a dedicated Linux machine (old laptop, mini PC, home server) so the AI has real system access to do useful work.
 
-Switch is the calm center for a swarm of agents. Spin up multiple sessions at once, let them talk to each other, and keep every thread portable across phone and desktop. Your sessions are not tied to a single provider, so you keep the flexibility of multiple backends while still getting the muscle of agent harnesses. It is simple open source software tied together with the power of SOTA when desired.
+Switch is the calm center for a swarm of agents. Spin up multiple sessions at once, let them talk to each other, and keep every thread portable across phone and desktop. Your sessions are not tied to a single provider, so you keep the flexibility of multiple backends while still getting the muscle of agent harnesses.
 
 ## Features
 
-- **Multi-session**: Each conversation is a separate XMPP contact
-- **Multiple orchestrators**: Three contacts for different AI backends
-- **Mobile-friendly**: Works with any XMPP client (Conversations, Gajim, Dino, etc.)
+- **Multi-session**: Each conversation is a separate chat contact
+- **Multiple orchestrators**: Multiple contacts for different AI backends
+- **Mobile-friendly**: Works with any open source chat app (Conversations, Monal, Gajim, Dino, etc.)
 - **Session persistence**: Resume conversations after restarts
 - **Ralph loops**: Autonomous iteration for long-running tasks
 - **Shell access**: Run commands directly from chat
@@ -69,7 +73,7 @@ uv sync
 
 # Configure
 cp .env.example .env
-# Edit .env with your XMPP server details
+# Edit .env with your chat server details
 
 # Agent instructions are symlinked to home (for Claude Code and OpenCode)
 # Edit ~/switch/AGENTS.md - symlinks at ~/AGENTS.md and ~/CLAUDE.md point here
@@ -80,7 +84,7 @@ uv run python -m src.bridge
 
 ## Orchestrator Contacts
 
-Each AI backend has its own XMPP contact. Message any of them to start a session:
+Each AI backend shows up as a contact in your chat app. Message any of them to start a session:
 
 | Contact | Backend | Model |
 |---------|---------|-------|
@@ -97,7 +101,7 @@ Sessions appear as separate contacts (e.g., `fix-auth-bug@...`) so you can have 
 
 ```mermaid
 flowchart LR
-    You --> Client[XMPP Client]
+    You --> Client[Chat App]
     subgraph Orchestrators["Orchestrator Contacts"]
         direction TB
         cc["cc@..."]
@@ -149,7 +153,7 @@ flowchart LR
 
 - Dedicated Linux machine (bare metal preferred)
 - Python 3.11+
-- ejabberd XMPP server
+- [ejabberd](https://www.ejabberd.im/) (open source chat server)
 - OpenCode CLI and/or Claude Code CLI
 - tmux
 - [Tailscale](https://tailscale.com/) (recommended for secure remote access)
