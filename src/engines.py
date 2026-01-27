@@ -8,6 +8,7 @@ OPENCODE_MODEL_DEFAULT = "glm_vllm/glm-4.7-flash"
 OPENCODE_MODEL_GPT = "openai/gpt-5.2-codex"
 OPENCODE_MODEL_ZEN = "opencode/glm-4.7"
 OPENCODE_MODEL_GPT_OR = "openrouter/openai/gpt-5.2"
+OPENCODE_MODEL_KIMI_CODING = "kimi-for-coding/kimi-k2.5"
 
 
 @dataclass(frozen=True)
@@ -44,4 +45,6 @@ def opencode_model_for_agent(agent: str | None) -> str:
         return OPENCODE_MODEL_ZEN
     if agent == "bridge-gpt-or":
         return OPENCODE_MODEL_GPT_OR
+    if agent == "bridge-kimi-coding":
+        return OPENCODE_MODEL_KIMI_CODING
     return OPENCODE_MODEL_DEFAULT

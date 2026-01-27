@@ -33,6 +33,7 @@ class DispatcherBot(BaseXMPPBot):
     - oc-gpt: OpenCode with GPT 5.2 (bridge-gpt agent)
     - oc-glm-zen: OpenCode with GLM 4.7 via Zen (bridge-zen agent)
     - oc-gpt-or: OpenCode with GPT 5.2 via OpenRouter (bridge-gpt-or agent)
+    - oc-kimi-coding: OpenCode with Kimi K2.5 via Kimi for Coding (bridge-kimi-coding agent)
     """
 
     def __init__(

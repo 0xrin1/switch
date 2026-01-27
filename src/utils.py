@@ -85,6 +85,15 @@ def get_xmpp_config() -> dict:
                 "agent": "bridge-gpt-or",
                 "label": "GPT 5.2 OR",
             },
+            "oc-kimi-coding": {
+                "jid": os.getenv("OC_KIMI_CODING_JID", f"oc-kimi-coding@{domain}"),
+                "password": os.getenv(
+                    "OC_KIMI_CODING_PASSWORD", os.getenv("XMPP_PASSWORD", "")
+                ),
+                "engine": "opencode",
+                "agent": "bridge-kimi-coding",
+                "label": "Kimi K2.5 Coding",
+            },
         },
     }
 
@@ -140,7 +149,7 @@ class BaseXMPPBot(ClientXMPP):
         self.enable_starttls = False
         self.enable_direct_tls = False
         self.enable_plaintext = True
-        self.connect((server, port))
+        self.connect((server, port))  # type: ignore[arg-type]
 
     def set_connected(self, connected: bool) -> None:
         if connected:

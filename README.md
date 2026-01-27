@@ -87,6 +87,9 @@ Each AI backend has its own XMPP contact. Message any of them to start a session
 | `cc@...` | Claude Code | Claude Opus |
 | `oc@...` | OpenCode | GLM 4.7 |
 | `oc-gpt@...` | OpenCode | GPT 5.2 |
+| `oc-glm-zen@...` | OpenCode | GLM 4.7 (Zen) |
+| `oc-gpt-or@...` | OpenCode | GPT 5.2 (OpenRouter) |
+| `oc-kimi-coding@...` | OpenCode | Kimi K2.5 (Kimi for Coding) |
 
 Sessions appear as separate contacts (e.g., `fix-auth-bug@...`) so you can have multiple conversations in parallel.
 
@@ -156,6 +159,7 @@ flowchart LR
 - **cc**: Claude Opus via Claude Code CLI
 - **oc**: GLM 4.7 via OpenCode - fast, cheap, good for iteration
 - **oc-gpt**: GPT 5.2 via OpenCode - alternative for comparison
+- **oc-kimi-coding**: Kimi K2.5 via Kimi for Coding
 
 ## License
 

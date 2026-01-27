@@ -1,6 +1,17 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
+    "kimi-for-coding": {
+      "models": {
+        "kimi-k2.5": {
+          "name": "Kimi K2.5 (Coding)",
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        }
+      }
+    },
     "moonshotai": {
       "models": {
         "kimi-k2.5": {
@@ -105,6 +116,23 @@
       "mode": "primary",
       "description": "XMPP bridge agent (Kimi K2.5 via OpenRouter)",
       "model": "openrouter/moonshotai/kimi-k2.5",
+      "permission": "allow",
+      "tools": {
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": true,
+        "task": false,
+        "skill": true
+      }
+    },
+    "bridge-kimi-coding": {
+      "mode": "primary",
+      "description": "XMPP bridge agent (Kimi K2.5 via Kimi for Coding)",
+      "model": "kimi-for-coding/kimi-k2.5",
       "permission": "allow",
       "tools": {
         "bash": true,

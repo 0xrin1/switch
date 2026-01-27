@@ -51,6 +51,14 @@ XMPP_DISPATCHER_JID=oc@your.xmpp.server
 XMPP_DISPATCHER_PASSWORD=your-dispatcher-password
 XMPP_RECIPIENT=your-user@your.xmpp.server
 EJABBERD_CTL=/path/to/ejabberdctl
+
+# Optional additional dispatchers (OpenCode)
+OC_GLM_ZEN_JID=oc-glm-zen@your.xmpp.server
+OC_GLM_ZEN_PASSWORD=
+OC_GPT_OR_JID=oc-gpt-or@your.xmpp.server
+OC_GPT_OR_PASSWORD=
+OC_KIMI_CODING_JID=oc-kimi-coding@your.xmpp.server
+OC_KIMI_CODING_PASSWORD=
 ```
 
 ## ejabberd Setup
