@@ -59,8 +59,8 @@
     },
     "bridge-gpt": {
       "mode": "primary",
-      "description": "XMPP bridge agent (GPT 5.2 codex)",
-      "model": "openai/gpt-5.2-codex",
+      "description": "XMPP bridge agent (GPT 5.2)",
+      "model": "openai/gpt-5.2",
       "default": false,
       "permission": "allow",
       "options": {

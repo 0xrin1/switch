@@ -15,7 +15,12 @@ import aiohttp
 from src.runners.base import BaseRunner, RunState
 from src.runners.opencode.client import OpenCodeClient
 from src.runners.opencode.events import coerce_event, extract_session_id
-from src.runners.opencode.models import Event, OpenCodeResult, Question, QuestionCallback
+from src.runners.opencode.models import (
+    Event,
+    OpenCodeResult,
+    Question,
+    QuestionCallback,
+)
 
 log = logging.getLogger("opencode")
 
@@ -211,7 +216,9 @@ class OpenCodeRunner(BaseRunner):
             or event.get("properties", {}).get("id")
         )
 
-        questions = event.get("questions") or event.get("properties", {}).get("questions") or []
+        questions = (
+            event.get("questions") or event.get("properties", {}).get("questions") or []
+        )
 
         if not request_id:
             log.warning(f"Question event missing request ID: {event}")
@@ -323,7 +330,11 @@ class OpenCodeRunner(BaseRunner):
             if message_task.done() and message_done_at is None:
                 message_done_at = time.monotonic()
 
-            if message_done_at is not None and not state.saw_result and not state.saw_error:
+            if (
+                message_done_at is not None
+                and not state.saw_result
+                and not state.saw_error
+            ):
                 # If we haven't seen any relevant events for a while after the
                 # POST completed, stop waiting and fall back to error handling.
                 if (time.monotonic() - last_event_at) >= idle_timeout_s:
@@ -450,7 +461,9 @@ class OpenCodeRunner(BaseRunner):
                 await self._client.check_health(session)
 
                 if not session_id:
-                    session_id = await self._client.create_session(session, self.session_name)
+                    session_id = await self._client.create_session(
+                        session, self.session_name
+                    )
 
                 state.session_id = session_id
                 self._active_session_id = session_id
@@ -500,7 +513,10 @@ class OpenCodeRunner(BaseRunner):
         except Exception as e:
             state.saw_error = True
             log.exception(f"OpenCode runner exception: {type(e).__name__}: {e}")
-            yield ("error", str(e))
+            message = str(e).strip()
+            if not message:
+                message = type(e).__name__
+            yield ("error", message)
         finally:
             await self._cleanup_tasks(sse_task, message_task)
 

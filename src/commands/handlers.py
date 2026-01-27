@@ -191,10 +191,12 @@ class CommandHandler:
         if self.bot.ralph_loop:
             rl = self.bot.ralph_loop
             max_str = str(rl.max_iterations) if rl.max_iterations > 0 else "unlimited"
+            wait_minutes = rl.wait_seconds / 60.0
             self.bot.send_reply(
                 f"Ralph RUNNING\n"
                 f"Iteration: {rl.current_iteration}/{max_str}\n"
                 f"Cost so far: ${rl.total_cost:.3f}\n"
+                f"Wait: {wait_minutes:.2f} min\n"
                 f"Promise: {rl.completion_promise or 'none'}"
             )
         else:
@@ -203,9 +205,11 @@ class CommandHandler:
                 max_str = (
                     str(loop.max_iterations) if loop.max_iterations else "unlimited"
                 )
+                wait_minutes = loop.wait_seconds / 60.0
                 self.bot.send_reply(
                     f"Last Ralph: {loop.status}\n"
                     f"Iterations: {loop.current_iteration}/{max_str}\n"
+                    f"Wait: {wait_minutes:.2f} min\n"
                     f"Cost: ${loop.total_cost:.3f}"
                 )
             else:
@@ -218,11 +222,11 @@ class CommandHandler:
         ralph_args = parse_ralph_command(body)
         if ralph_args is None:
             self.bot.send_reply(
-                "Usage: /ralph <prompt> [--max N] [--done 'promise']\n"
+                "Usage: /ralph <prompt> [--max N] [--done 'promise'] [--wait M]\n"
                 "  or:  /ralph <N> <prompt>  (shorthand)\n\n"
                 "Examples:\n"
                 "  /ralph 20 Fix all type errors\n"
-                "  /ralph Refactor auth --max 10 --done 'All tests pass'\n\n"
+                "  /ralph Refactor auth --max 10 --wait 5 --done 'All tests pass'\n\n"
                 "Commands:\n"
                 "  /ralph-status - check progress\n"
                 "  /ralph-cancel - stop loop"
@@ -240,6 +244,7 @@ class CommandHandler:
             self.bot.output_dir,
             max_iterations=ralph_args["max_iterations"],
             completion_promise=ralph_args["completion_promise"],
+            wait_minutes=ralph_args["wait_minutes"],
             sessions=self.bot.sessions,
             ralph_loops=self.bot.ralph_loops,
         )

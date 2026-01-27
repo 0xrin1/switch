@@ -150,10 +150,11 @@ sessions (
 Autonomous iteration system for long-running tasks:
 
 ```
-/ralph 20 Fix all type errors
+/ralph 20 Fix all type errors --wait 5
 ```
 
 Runs the AI in a loop until:
 - Max iterations reached
 - Completion promise detected in output
 - Manual cancellation via `/ralph-cancel`
+- Wait interval between iterations (default ~0.03 min, configurable with `--wait`)

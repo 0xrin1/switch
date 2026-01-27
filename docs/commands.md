@@ -52,12 +52,13 @@ Example: `!git status`, `!pwd`, `!ls -la`
 | `/ralph <N> <prompt>` | Run up to N iterations |
 | `/ralph <prompt> --max N` | Same as above |
 | `/ralph <prompt> --done "promise"` | Stop when AI outputs `<promise>...</promise>` |
+| `/ralph <prompt> --wait M` | Wait M minutes between iterations |
 | `/ralph-status` | Check loop progress |
 | `/ralph-cancel` | Stop after current iteration |
 
 Example:
 ```
-/ralph 10 Fix all TypeScript errors --done "All errors fixed"
+/ralph 10 Fix all TypeScript errors --wait 5 --done "All errors fixed"
 ```
 
 ### Sibling Sessions

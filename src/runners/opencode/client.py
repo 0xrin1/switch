@@ -208,9 +208,16 @@ class OpenCodeClient:
 
         last_exc: Exception | None = None
 
+        connect_timeout_s = float(os.getenv("OPENCODE_SSE_CONNECT_TIMEOUT_S", "10"))
+        request_timeout = aiohttp.ClientTimeout(total=None)
+
         for url in urls:
             try:
-                async with session.get(url, headers=headers) as resp:
+                resp = await asyncio.wait_for(
+                    session.get(url, headers=headers, timeout=request_timeout),
+                    timeout=connect_timeout_s,
+                )
+                async with resp:
                     if resp.status == 404:
                         continue
                     if resp.status >= 400:
@@ -218,12 +225,19 @@ class OpenCodeClient:
                         raise RuntimeError(f"OpenCode SSE HTTP {resp.status}: {detail}")
                     await self.read_sse_stream(resp, queue, should_stop=should_stop)
                     return
+            except asyncio.TimeoutError as e:
+                last_exc = e
+                log.warning(
+                    f"OpenCode SSE connect timed out for {url} after {connect_timeout_s}s"
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 last_exc = e
                 # This is a critical reliability issue; surface it at normal log level.
-                log.warning(f"OpenCode SSE connect failed for {url}: {type(e).__name__}: {e}")
+                log.warning(
+                    f"OpenCode SSE connect failed for {url}: {type(e).__name__}: {e}"
+                )
 
         if last_exc:
             raise RuntimeError(

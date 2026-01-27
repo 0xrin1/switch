@@ -48,6 +48,7 @@ class RalphLoop:
     prompt: str
     completion_promise: str | None
     max_iterations: int
+    wait_seconds: float
     current_iteration: int
     total_cost: float
     status: str
@@ -242,6 +243,7 @@ class RalphLoopRepository:
             prompt=row["prompt"],
             completion_promise=row["completion_promise"],
             max_iterations=row["max_iterations"] or 0,
+            wait_seconds=row["wait_seconds"] if row["wait_seconds"] is not None else 2.0,
             current_iteration=row["current_iteration"] or 0,
             total_cost=row["total_cost"] or 0.0,
             status=row["status"] or "running",
@@ -264,16 +266,18 @@ class RalphLoopRepository:
         prompt: str,
         max_iterations: int = 0,
         completion_promise: str | None = None,
+        wait_seconds: float = 2.0,
     ) -> int:
         cursor = self.conn.execute(
             """INSERT INTO ralph_loops
-               (session_name, prompt, completion_promise, max_iterations, started_at)
-               VALUES (?, ?, ?, ?, ?)""",
+               (session_name, prompt, completion_promise, max_iterations, wait_seconds, started_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 session_name,
                 prompt,
                 completion_promise,
                 max_iterations,
+                wait_seconds,
                 datetime.now().isoformat(),
             ),
         )
@@ -372,6 +376,7 @@ def init_db() -> sqlite3.Connection:
             prompt TEXT NOT NULL,
             completion_promise TEXT,
             max_iterations INTEGER DEFAULT 0,
+            wait_seconds REAL DEFAULT 2.0,
             current_iteration INTEGER DEFAULT 0,
             total_cost REAL DEFAULT 0,
             status TEXT DEFAULT 'running',
@@ -404,6 +409,16 @@ def init_db() -> sqlite3.Connection:
     for col_name, col_type in migrations:
         try:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_type}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
+    ralph_migrations = [
+        ("wait_seconds", "REAL DEFAULT 2.0"),
+    ]
+    for col_name, col_type in ralph_migrations:
+        try:
+            conn.execute(f"ALTER TABLE ralph_loops ADD COLUMN {col_name} {col_type}")
             conn.commit()
         except sqlite3.OperationalError:
             pass

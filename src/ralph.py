@@ -20,11 +20,11 @@ def parse_ralph_command(body: str) -> dict | None:
     """Parse /ralph command into components.
 
     Formats:
-        /ralph <prompt> --max <N> --done "<promise>"
+        /ralph <prompt> --max <N> --done "<promise>" --wait <M>
         /ralph <N> <prompt>  (shorthand)
         /ralph <prompt>  (infinite - dangerous!)
 
-    Returns dict with: prompt, max_iterations, completion_promise
+    Returns dict with: prompt, max_iterations, completion_promise, wait_minutes
     """
     if not body.lower().startswith("/ralph"):
         return None
@@ -40,6 +40,7 @@ def parse_ralph_command(body: str) -> dict | None:
 
     max_iterations = 0
     completion_promise = None
+    wait_minutes = 2.0 / 60.0
     prompt_parts = []
 
     i = 0
@@ -56,6 +57,13 @@ def parse_ralph_command(body: str) -> dict | None:
             completion_promise = parts[i + 1]
             i += 2
             continue
+        elif part in ("--wait", "--wait-min", "--wait-minutes", "--interval", "--sleep", "-w") and i + 1 < len(parts):
+            try:
+                wait_minutes = float(parts[i + 1])
+                i += 2
+                continue
+            except ValueError:
+                pass
         prompt_parts.append(part)
         i += 1
 
@@ -65,7 +73,14 @@ def parse_ralph_command(body: str) -> dict | None:
         prompt_parts = prompt_parts[1:]
 
     prompt = " ".join(prompt_parts)
-    return {"prompt": prompt, "max_iterations": max_iterations, "completion_promise": completion_promise} if prompt else None
+    if not prompt:
+        return None
+    return {
+        "prompt": prompt,
+        "max_iterations": max_iterations,
+        "completion_promise": completion_promise,
+        "wait_minutes": max(0.0, wait_minutes),
+    }
 
 
 @dataclass
@@ -90,6 +105,7 @@ class RalphLoop:
         output_dir: Path,
         max_iterations: int = 0,
         completion_promise: str | None = None,
+        wait_minutes: float = 2.0 / 60.0,
         sessions: "SessionRepository | None" = None,
         ralph_loops: "RalphLoopRepository | None" = None,
     ):
@@ -99,6 +115,7 @@ class RalphLoop:
         self.output_dir = output_dir
         self.max_iterations = max_iterations
         self.completion_promise = completion_promise
+        self.wait_seconds = max(0.0, wait_minutes) * 60.0
         self.sessions = sessions
         self.ralph_loops = ralph_loops
         self.current_iteration = 0
@@ -180,13 +197,18 @@ class RalphLoop:
         # Initialize DB record
         if self.ralph_loops:
             self.loop_id = self.ralph_loops.create(
-                self.bot.session_name, self.prompt, self.max_iterations, self.completion_promise
+                self.bot.session_name,
+                self.prompt,
+                self.max_iterations,
+                self.completion_promise,
+                self.wait_seconds,
             )
 
         promise_str = f'"{self.completion_promise}"' if self.completion_promise else "none"
+        wait_minutes = self.wait_seconds / 60.0
         self.bot.send_reply(
             f"Ralph loop started\n"
-            f"Max: {self._format_max()} | Done when: {promise_str}\n"
+            f"Max: {self._format_max()} | Wait: {wait_minutes:.2f} min | Done when: {promise_str}\n"
             f"Use /ralph-cancel to stop"
         )
 
@@ -235,6 +257,6 @@ class RalphLoop:
                 return
 
             self._save_state()
-            await asyncio.sleep(2)
+            await asyncio.sleep(self.wait_seconds)
 
         self._save_state("finished")
