@@ -527,7 +527,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                     # Question is being handled by callback, just log it
                     self.log.info(f"Question asked: {content.request_id}")
                 elif event_type == "result" and isinstance(content, OpenCodeResult):
-                    model_short = session.model_id.split("/")[-1] if session.model_id else "?"
+                    if not response_parts and content.text:
+                        response_parts.append(content.text)
+                    model_short = (
+                        session.model_id.split("/")[-1] if session.model_id else "?"
+                    )
                     stats = (
                         f"[{model_short} {content.tokens_in}/{content.tokens_out} tok"
                         f" r{content.tokens_reasoning} c{content.tokens_cache_read}/{content.tokens_cache_write}"

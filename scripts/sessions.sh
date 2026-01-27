@@ -5,12 +5,27 @@ cd "$(dirname "$0")/.."
 
 DB="sessions.db"
 
+has_sqlite() {
+    command -v sqlite3 >/dev/null 2>&1
+}
+
+require_sqlite() {
+    if ! has_sqlite; then
+        echo "sqlite3 not found; install it to manage sessions.db"
+        exit 1
+    fi
+}
+
 case "${1:-list}" in
     list)
         echo "=== Sessions ==="
         if [ -f "$DB" ]; then
-            sqlite3 -header -column "$DB" \
-                "SELECT name, xmpp_jid, datetime(last_active) as last_active FROM sessions ORDER BY last_active DESC"
+            if has_sqlite; then
+                sqlite3 -header -column "$DB" \
+                    "SELECT name, xmpp_jid, datetime(last_active) as last_active FROM sessions ORDER BY last_active DESC"
+            else
+                echo "sqlite3 not found; install it to view sessions.db"
+            fi
         else
             echo "No sessions yet."
         fi
@@ -25,6 +40,7 @@ case "${1:-list}" in
             exit 1
         fi
         NAME="$2"
+        require_sqlite
 
         JID=$(sqlite3 "$DB" "SELECT xmpp_jid FROM sessions WHERE name='$NAME'" 2>/dev/null)
         if [ -z "$JID" ]; then
@@ -45,6 +61,8 @@ case "${1:-list}" in
 
     clean)
         echo "Cleaning all sessions..."
+        require_sqlite
+
         sqlite3 "$DB" "SELECT name FROM sessions" 2>/dev/null | while read NAME; do
             "$0" kill "$NAME"
         done

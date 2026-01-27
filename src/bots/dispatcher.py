@@ -52,6 +52,9 @@ class DispatcherBot(BaseXMPPBot):
         label: str = "GLM 4.7",
     ):
         super().__init__(jid, password)
+        # Initialize logger early because Slixmpp can deliver stanzas before
+        # session_start fires (race on connect), and we log inside on_message.
+        self.log = logging.getLogger(f"dispatcher.{jid}")
         self.db = db
         self.sessions = SessionRepository(db)
         self.working_dir = working_dir
@@ -79,7 +82,6 @@ class DispatcherBot(BaseXMPPBot):
     async def on_start(self, event):
         self.send_presence()
         await self.get_roster()
-        self.log = logging.getLogger("dispatcher")
         self.log.info("Dispatcher connected")
         self.set_connected(True)
 
@@ -131,8 +133,14 @@ class DispatcherBot(BaseXMPPBot):
                 self.send_reply(f"Dispatcher received: {body}", recipient=reply_to)
 
         except Exception as exc:
-            self.log.exception("Dispatcher error")
-            self.send_reply(f"Error: {exc}", recipient=self.xmpp_recipient)
+            # Be defensive: if a failure happens before self.log is ready,
+            # don't crash the exception handler too.
+            log = getattr(self, "log", logging.getLogger("dispatcher"))
+            log.exception("Dispatcher error")
+            try:
+                self.send_reply(f"Error: {exc}", recipient=self.xmpp_recipient)
+            except Exception:
+                log.exception("Failed to send dispatcher error reply")
 
     async def _dispatch_command(self, body: str) -> None:
         """Dispatch command to handler."""

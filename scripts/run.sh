@@ -41,4 +41,9 @@ if ! command -v tmux &> /dev/null; then
 fi
 
 echo "Starting Switch..."
-uv run python -m src.bridge
+if command -v uv >/dev/null 2>&1; then
+    exec uv run python -m src.bridge
+fi
+
+# Fallback when uv isn't installed (common on fresh boxes).
+exec python3 -m src.bridge

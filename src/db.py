@@ -120,6 +120,17 @@ class SessionRepository:
         ).fetchall()
         return [self._row_to_session(row) for row in rows]
 
+    def list_active_recent(self, limit: int = 50) -> list[Session]:
+        """List most recently active sessions that are still marked active."""
+        rows = self.conn.execute(
+            """SELECT * FROM sessions
+               WHERE status = 'active'
+               ORDER BY last_active DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_session(row) for row in rows]
+
     def create(
         self,
         name: str,
@@ -149,7 +160,10 @@ class SessionRepository:
             ),
         )
         self.conn.commit()
-        return self.get(name)  # type: ignore[return-value]
+        created = self.get(name)
+        if not created:
+            raise RuntimeError(f"Failed to load newly created session: {name}")
+        return created
 
     def update_last_active(self, name: str) -> None:
         self.conn.execute(
@@ -264,7 +278,9 @@ class RalphLoopRepository:
             ),
         )
         self.conn.commit()
-        return cursor.lastrowid  # type: ignore[return-value]
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to create ralph loop (no rowid)")
+        return int(cursor.lastrowid)
 
     def update_progress(
         self,
@@ -394,5 +410,3 @@ def init_db() -> sqlite3.Connection:
 
     conn.commit()
     return conn
-
-

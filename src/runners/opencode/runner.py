@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -66,21 +67,27 @@ class OpenCodeRunner(BaseRunner):
             return ("session_id", session_id)
         return None
 
+    def _apply_text_update(self, text: str, state: RunState) -> Event | None:
+        """Apply accumulated text update and return delta event if any."""
+        if not text:
+            return None
+        # SSE sends full accumulated text, not deltas - extract only the new part.
+        if text.startswith(state.text):
+            delta = text[len(state.text) :]
+            state.text = text
+            if delta:
+                return ("text", delta)
+            return None
+        # Text doesn't match previous - might be a new message segment.
+        state.text = text
+        return ("text", text)
+
     def _handle_text(self, event: dict, state: RunState) -> Event | None:
         """Handle text event - extracts delta from accumulated text."""
         part = event.get("part", {})
         text = part.get("text", "") if isinstance(part, dict) else ""
-        if isinstance(text, str) and text:
-            # SSE sends full accumulated text, not deltas - extract only the new part
-            if text.startswith(state.text):
-                delta = text[len(state.text) :]
-                state.text = text
-                if delta:
-                    return ("text", delta)
-                return None
-            # Text doesn't match previous - might be a new message segment
-            state.text = text
-            return ("text", text)
+        if isinstance(text, str):
+            return self._apply_text_update(text, state)
         return None
 
     def _handle_tool_use(self, event: dict, state: RunState) -> Event | None:
@@ -245,12 +252,19 @@ class OpenCodeRunner(BaseRunner):
             "question.asked": self._handle_question,
             "question": self._handle_question,
         }
+
+        # Server-mode streams often send message events rather than "text".
+        if event_type == "message_part":
+            text = event.get("text", "")
+            if isinstance(text, str):
+                return self._apply_text_update(text, state)
+
         handler = handlers.get(event_type)
         return handler(event, state) if handler else None
 
-    async def _run_question_callback(self, question: Question) -> dict[str, list[str]]:
+    async def _run_question_callback(self, question: Question) -> list[list[str]]:
         if not self.question_callback:
-            return {}
+            return []
         return await self.question_callback(question)
 
     async def _handle_question_event(
@@ -289,6 +303,13 @@ class OpenCodeRunner(BaseRunner):
         message_task: asyncio.Task,
     ) -> AsyncIterator[Event]:
         """Process events from SSE stream until completion."""
+        # When the message POST returns quickly (often HTTP 204), SSE events may
+        # still arrive later. Avoid exiting early just because the POST finished
+        # and the queue is momentarily empty.
+        idle_timeout_s = float(os.getenv("OPENCODE_POST_MESSAGE_IDLE_TIMEOUT_S", "30"))
+        message_done_at: float | None = None
+        last_event_at = time.monotonic()
+
         while True:
             if self._cancelled:
                 break
@@ -298,9 +319,14 @@ class OpenCodeRunner(BaseRunner):
                     raise exc
             if message_task.done() and (state.saw_result or state.saw_error):
                 break
-            if message_task.done() and event_queue.empty():
-                await asyncio.sleep(0.1)
-                if event_queue.empty():
+
+            if message_task.done() and message_done_at is None:
+                message_done_at = time.monotonic()
+
+            if message_done_at is not None and not state.saw_result and not state.saw_error:
+                # If we haven't seen any relevant events for a while after the
+                # POST completed, stop waiting and fall back to error handling.
+                if (time.monotonic() - last_event_at) >= idle_timeout_s:
                     break
 
             try:
@@ -310,6 +336,7 @@ class OpenCodeRunner(BaseRunner):
 
             if not isinstance(payload, dict):
                 continue
+
             payload_session = extract_session_id(payload)
             if payload_session and payload_session != session_id:
                 continue
@@ -321,6 +348,10 @@ class OpenCodeRunner(BaseRunner):
             result = self._parse_event(coerced, state)
             if not result:
                 continue
+
+            # Only reset idle timer on events that are relevant to this
+            # session and produced a meaningful result.
+            last_event_at = time.monotonic()
 
             event_type, data = result
             if event_type == "question" and isinstance(data, Question):
@@ -453,7 +484,15 @@ class OpenCodeRunner(BaseRunner):
                         state.saw_result = True
                         yield ("result", self._make_result(state))
                 elif not state.saw_result and not state.saw_error:
-                    yield self._make_fallback_error(state)
+                    # Some server modes return an empty body for /message and rely on
+                    # storing output in the session message list. Fall back to polling.
+                    polled = await self._client.poll_assistant_text(session, session_id)
+                    if polled and isinstance(polled, str):
+                        state.text = polled
+                        state.saw_result = True
+                        yield ("result", self._make_result(state))
+                    else:
+                        yield self._make_fallback_error(state)
 
         except asyncio.CancelledError:
             log.info("OpenCode runner was cancelled")

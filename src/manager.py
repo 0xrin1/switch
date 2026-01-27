@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sqlite3
 from pathlib import Path
 
@@ -130,7 +131,14 @@ class SessionManager:
 
     async def restore_sessions(self):
         """Restore existing sessions from DB."""
-        active = self.sessions.list_active()
+        # Restoring every historical "active" session can create hundreds of bots,
+        # which is slow and can destabilize the process. Prefer restoring only the
+        # most recently used sessions; older sessions can be re-opened on-demand.
+        limit = int(os.getenv("SWITCH_RESTORE_ACTIVE_LIMIT", "50"))
+        try:
+            active = self.sessions.list_active_recent(limit=limit)
+        except Exception:
+            active = self.sessions.list_active()
         for session in active:
             # Ensure the session has a tmux pane tailing its log.
             create_tmux_session(session.name, self.working_dir)

@@ -65,6 +65,28 @@ def coerce_event(payload: dict) -> dict | None:
     props = payload.get("properties") if isinstance(payload.get("properties"), dict) else None
 
     if props:
+        # OpenCode server mode tends to emit message events instead of raw "text"
+        # events. Normalize them into the minimal shapes the runner expects.
+        if event_type == "message.updated":
+            info = props.get("info")
+            if isinstance(info, dict):
+                return {
+                    "type": "message_meta",
+                    "sessionID": info.get("sessionID"),
+                    "messageID": info.get("id"),
+                    "role": info.get("role"),
+                }
+
+        if event_type == "message.part.updated":
+            part = props.get("part")
+            if isinstance(part, dict) and part.get("type") == "text":
+                return {
+                    "type": "message_part",
+                    "sessionID": part.get("sessionID"),
+                    "messageID": part.get("messageID"),
+                    "text": part.get("text", ""),
+                }
+
         if event_type in {"question.asked", "question"}:
             return {"type": "question.asked", **props}
         if event_type in {"permission.requested", "session.permission.requested"}:

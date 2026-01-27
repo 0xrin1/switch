@@ -140,13 +140,70 @@ class OpenCodeClient:
         except Exception as e:
             log.debug(f"Failed to abort session {session_id}: {e}")
 
+    async def get_session_messages(
+        self, session: aiohttp.ClientSession, session_id: str
+    ) -> list[dict]:
+        """Return the server's stored message list for a session."""
+        url = self._make_url(f"/session/{session_id}/message")
+        data = await self.request_json(session, "GET", url)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+
+    def _extract_assistant_text(self, messages: list[dict]) -> str | None:
+        """Extract the latest assistant text (if any) from messages."""
+        for msg in reversed(messages):
+            info = msg.get("info")
+            if not isinstance(info, dict):
+                continue
+            if info.get("role") != "assistant":
+                continue
+            parts = msg.get("parts")
+            if not isinstance(parts, list):
+                continue
+            out: list[str] = []
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    text = part.get("text")
+                    if isinstance(text, str) and text:
+                        out.append(text)
+            if out:
+                return "".join(out)
+        return None
+
+    async def poll_assistant_text(
+        self,
+        session: aiohttp.ClientSession,
+        session_id: str,
+        *,
+        timeout_s: float = 30.0,
+        interval_s: float = 0.5,
+    ) -> str | None:
+        """Fallback for when SSE doesn't deliver text events.
+
+        Polls the session's stored messages until an assistant message appears.
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            messages = await self.get_session_messages(session, session_id)
+            text = self._extract_assistant_text(messages)
+            if text:
+                return text
+            await asyncio.sleep(interval_s)
+        return None
+
     async def stream_events(
         self,
         session: aiohttp.ClientSession,
         queue: asyncio.Queue[dict],
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
-        urls = [self._make_url("/event"), self._make_url("/global/event")]
+        # Prefer /global/event first. Some OpenCode server builds primarily emit
+        # session/message events on the global bus, while /event can include only
+        # heartbeats/file-watcher events.
+        urls = [self._make_url("/global/event"), self._make_url("/event")]
         headers = {"Accept": "text/event-stream"}
 
         last_exc: Exception | None = None
@@ -180,24 +237,58 @@ class OpenCodeClient:
         queue: asyncio.Queue[dict],
         should_stop: Callable[[], bool] | None = None,
     ) -> None:
-        data_lines: list[str] = []
-        async for raw in resp.content:
+        # Avoid aiohttp's line-based iteration (`readline()`), which can raise
+        # ValueError("Chunk too big") when a single SSE line exceeds the stream
+        # reader limit. Instead, read raw chunks and split events on blank lines.
+        max_buf = int(os.getenv("OPENCODE_SSE_MAX_BUFFER_BYTES", str(16 * 1024 * 1024)))
+
+        buf = bytearray()
+
+        def _split_event(buf_bytes: bytearray) -> tuple[bytes | None, int]:
+            """Return (event_bytes, consumed_bytes) for the next event, if any."""
+            idx_nl = buf_bytes.find(b"\n\n")
+            idx_crlf = buf_bytes.find(b"\r\n\r\n")
+            if idx_nl == -1 and idx_crlf == -1:
+                return None, 0
+            if idx_crlf != -1 and (idx_nl == -1 or idx_crlf < idx_nl):
+                return bytes(buf_bytes[:idx_crlf]), idx_crlf + 4
+            return bytes(buf_bytes[:idx_nl]), idx_nl + 2
+
+        async for chunk in resp.content.iter_any():
             if should_stop and should_stop():
                 break
-            line = raw.decode("utf-8", errors="replace").strip("\r\n")
-            if not line:
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            if len(buf) > max_buf:
+                raise ValueError(f"SSE buffer too big ({len(buf)} bytes)")
+
+            while True:
+                event_bytes, consumed = _split_event(buf)
+                if event_bytes is None:
+                    break
+                del buf[:consumed]
+
+                if not event_bytes.strip():
+                    continue
+
+                data_lines: list[str] = []
+                for raw_line in event_bytes.splitlines():
+                    line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
+                    if not line or line.startswith(":"):
+                        continue
+                    if line.startswith("data:"):
+                        data_lines.append(line[len("data:") :].lstrip())
+
                 if not data_lines:
                     continue
+
                 payload = "\n".join(data_lines)
-                data_lines = []
                 try:
                     event = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
                 if isinstance(event, dict):
                     await queue.put(event)
-                continue
-            if line.startswith(":"):
-                continue
-            if line.startswith("data:"):
-                data_lines.append(line[len("data:") :].lstrip())
+
+        # If the stream ends without a trailing blank line, ignore trailing bytes.

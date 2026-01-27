@@ -1,24 +1,49 @@
 #!/usr/bin/env python3
 """
-Send a message to oc@ dispatcher to spawn a new session.
+Send a message to a dispatcher to spawn a new session.
 
 Usage:
-    spawn-session.py <message>
+    spawn-session.py [--dispatcher <name>] <message>
 
 Example:
     spawn-session.py "Continue moonshot-survival work. Context: ..."
+
+    # Use a specific orchestrator/dispatcher (e.g. oc-gpt-or, oc-kimi-coding)
+    spawn-session.py --dispatcher oc-kimi-coding "Reply only: ok"
 """
 
 import asyncio
 import sys
+from pathlib import Path
 
-from src.utils import load_env, get_xmpp_config, BaseXMPPBot
+# Allow running this script directly without needing `uv run`.
+# Ensures `import src.*` works when invoked as `python3 scripts/spawn-session.py`.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.utils import BaseXMPPBot, get_xmpp_config, load_env
 
 # Load environment
 load_env()
 cfg = get_xmpp_config()
 
 XMPP_SERVER = cfg["server"]
+
+
+def _parse_args(argv: list[str]) -> tuple[str, str] | None:
+    if not argv:
+        return None
+
+    dispatcher_name = "cc"
+    if len(argv) >= 2 and argv[0] in {"--dispatcher", "-d"}:
+        dispatcher_name = argv[1]
+        argv = argv[2:]
+
+    if not argv:
+        return None
+
+    return dispatcher_name, " ".join(argv)
 
 
 class SpawnBot(BaseXMPPBot):
@@ -42,17 +67,28 @@ class SpawnBot(BaseXMPPBot):
 
 
 async def main():
-    if len(sys.argv) < 2:
+    parsed = _parse_args(sys.argv[1:])
+    if not parsed:
         print(__doc__)
         sys.exit(1)
 
-    message = " ".join(sys.argv[1:])
+    dispatcher_name, message = parsed
 
-    dispatcher_jid = cfg["dispatchers"]["cc"]["jid"]
-    dispatcher_password = cfg["dispatchers"]["cc"]["password"]
+    dispatchers = cfg.get("dispatchers", {})
+    dispatcher = dispatchers.get(dispatcher_name)
+    if not dispatcher:
+        known = ", ".join(sorted(dispatchers.keys())) or "none"
+        print(f"Error: unknown dispatcher '{dispatcher_name}'. Known: {known}")
+        sys.exit(2)
+
+    dispatcher_jid = dispatcher["jid"]
+    dispatcher_password = dispatcher["password"]
 
     if not dispatcher_password:
-        print("Error: XMPP_PASSWORD not set in .env")
+        print(
+            f"Error: no password configured for dispatcher '{dispatcher_name}'. "
+            "Set the dispatcher-specific password env var (or XMPP_PASSWORD) in .env."
+        )
         sys.exit(1)
 
     bot = SpawnBot(dispatcher_jid, dispatcher_password, dispatcher_jid, message)
