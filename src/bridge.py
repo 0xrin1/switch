@@ -24,6 +24,8 @@ import logging
 import os
 from pathlib import Path
 
+from src.attachments import AttachmentStore
+from src.attachments_server import start_attachments_server
 from src.db import init_db
 from src.helpers import create_xmpp_account
 from src.manager import SessionManager
@@ -54,6 +56,17 @@ log = logging.getLogger("bridge")
 
 async def main():
     db = init_db()
+
+    # Optional: serve attachments over HTTP so OpenCode can fetch them using a
+    # public URL (typically through a reverse proxy/tunnel).
+    attachments_server = None
+    attachments_store = AttachmentStore()
+    if os.getenv("SWITCH_ATTACHMENTS_ENABLE", "").lower() in {"1", "true", "yes"}:
+        attachments_server, host, port = await start_attachments_server(
+            attachments_store.base_dir
+        )
+        log.info(f"Attachments server listening on http://{host}:{port}")
+
     manager = SessionManager(
         db=db,
         working_dir=WORKING_DIR,

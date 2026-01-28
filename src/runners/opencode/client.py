@@ -10,6 +10,7 @@ from typing import Callable
 
 import aiohttp
 
+from src.attachments import Attachment
 from src.runners.opencode.models import Question
 
 log = logging.getLogger("opencode")
@@ -89,13 +90,21 @@ class OpenCodeClient:
         session: aiohttp.ClientSession,
         session_id: str,
         prompt: str,
+        attachments: list[Attachment] | None,
         model_payload: dict | None,
         agent: str,
         reasoning_mode: str,
     ) -> object | None:
-        body: dict[str, object] = {
-            "parts": [{"type": "text", "text": prompt}],
-        }
+        parts: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+        if attachments:
+            for a in attachments:
+                if a.kind != "image":
+                    continue
+                if not a.public_url:
+                    continue
+                parts.append({"type": "file", "mime": a.mime, "url": a.public_url})
+
+        body: dict[str, object] = {"parts": parts}
         if model_payload:
             body["model"] = model_payload
         if agent:

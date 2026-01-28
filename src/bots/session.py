@@ -24,6 +24,7 @@ from src.helpers import (
     register_unique_account,
 )
 from src.runners import ClaudeRunner, OpenCodeResult, OpenCodeRunner, Question
+from src.attachments import Attachment, AttachmentStore
 from src.utils import SWITCH_META_NS, BaseXMPPBot, build_message_meta
 
 if TYPE_CHECKING:
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class EngineHandler:
     name: str
-    run: Callable[[str, "Session"], Awaitable[None]]
+    run: Callable[[str, "Session", list[Attachment] | None], Awaitable[None]]
     reset: Callable[[], None]
     supports_reasoning: bool
 
@@ -76,13 +77,14 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self.shutting_down = False
         self._typing_task: asyncio.Task | None = None
         self._typing_last_sent = 0.0
-        self.message_queue: asyncio.Queue[str] = asyncio.Queue()
+        self.message_queue: asyncio.Queue[tuple[str, list[Attachment]]] = asyncio.Queue()
         # When set, queued messages should be dropped and the queue drain loop
         # should stop after the current in-flight work unwinds.
         self._cancel_queue_drain = False
         # request_id -> Future(answer) where answer is either a raw user string
         # or a structured OpenCode-style answers array.
         self._pending_question_answers: dict[str, asyncio.Future] = {}
+        self.attachment_store = AttachmentStore()
         self.log = logging.getLogger(f"session.{session_name}")
         self.init_ralph(RalphLoopRepository(db))
         self.commands = CommandHandler(self)
@@ -378,6 +380,19 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         body = (msg["body"] or "").strip()
         is_scheduled = sender == dispatcher_jid
 
+        attachments: list[Attachment] = []
+        try:
+            urls = self._extract_attachment_urls(msg, body)
+            if urls:
+                attachments = await self.attachment_store.download_images(
+                    self.session_name, urls
+                )
+                if attachments:
+                    self._send_attachment_meta(attachments)
+                    body = self._strip_urls_from_body(body, urls)
+        except Exception:
+            attachments = []
+
         if meta_type == "question-reply":
             request_id = (meta_attrs or {}).get("request_id")
             answer_obj: object | None = None
@@ -392,6 +407,8 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 self.log.info("Answered pending question via meta reply")
             return
 
+        if not body and attachments:
+            body = "Please analyze the attached image(s)."
         if not body:
             return
 
@@ -422,12 +439,83 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 await self.spawn_sibling_session(body[1:].strip())
                 return
             # Queue the message for later processing
-            await self.message_queue.put(body)
+            await self.message_queue.put((body, attachments))
             queue_size = self.message_queue.qsize()
             self.send_reply(f"Queued ({queue_size} pending)")
             return
 
-        await self._process_with_queue(body)
+        await self._process_with_queue(body, attachments)
+
+    _URL_RE = re.compile(r"https?://[^\s<>\]\)\}]+", re.IGNORECASE)
+
+    def _extract_attachment_urls(self, msg, body: str) -> list[str]:
+        urls: list[str] = []
+
+        # jabber:x:oob and similar: scan all descendants for <url> elements.
+        try:
+            for el in getattr(msg, "xml", []) or []:
+                for child in list(el.iter()):
+                    tag = getattr(child, "tag", "")
+                    if tag.endswith("}url") or tag == "url":
+                        text = (getattr(child, "text", None) or "").strip()
+                        if text.startswith("http"):
+                            urls.append(text)
+        except Exception:
+            pass
+
+        for m in self._URL_RE.finditer(body or ""):
+            raw = m.group(0)
+            url = raw.rstrip(".,;:!?")
+            if url.startswith("http"):
+                urls.append(url)
+
+        seen: set[str] = set()
+        out: list[str] = []
+        for u in urls:
+            if u in seen:
+                continue
+            seen.add(u)
+            out.append(u)
+        return out
+
+    def _strip_urls_from_body(self, body: str, urls: list[str]) -> str:
+        if not body:
+            return body
+        out = body
+        for u in urls:
+            out = out.replace(u, "")
+        return " ".join(out.split()).strip()
+
+    def _send_attachment_meta(self, attachments: list[Attachment]) -> None:
+        payload = {
+            "version": 1,
+            "engine": "switch",
+            "attachments": [
+                {
+                    "id": a.id,
+                    "kind": a.kind,
+                    "mime": a.mime,
+                    "filename": a.filename,
+                    "local_path": a.local_path,
+                    "public_url": a.public_url,
+                    "size_bytes": a.size_bytes,
+                    "sha256": a.sha256,
+                    "original_url": a.original_url,
+                }
+                for a in attachments
+            ],
+        }
+        self.send_reply(
+            f"[Received {len(attachments)} image(s)]",
+            meta_type="attachment",
+            meta_tool="attachment",
+            meta_attrs={
+                "version": "1",
+                "engine": "switch",
+                "count": str(len(attachments)),
+            },
+            meta_payload=payload,
+        )
 
     # -------------------------------------------------------------------------
     # Shell commands
@@ -516,11 +604,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
     # Message processing
     # -------------------------------------------------------------------------
 
-    async def _process_with_queue(self, body: str):
+    async def _process_with_queue(self, body: str, attachments: list[Attachment] | None):
         """Process a message and then drain any queued messages."""
         # New user work starts a new drain window.
         self._cancel_queue_drain = False
-        await self.process_message(body)
+        await self.process_message(body, attachments=attachments)
 
         # If a /cancel happened while this message was in-flight, don't churn
         # through any queued messages.
@@ -533,7 +621,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             try:
                 if self._cancel_queue_drain:
                     break
-                next_body = self.message_queue.get_nowait()
+                next_body, next_attachments = self.message_queue.get_nowait()
 
                 # /cancel may have fired after we dequeued but before we start.
                 if self._cancel_queue_drain:
@@ -546,7 +634,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                     )
                 else:
                     self.send_reply("Processing queued message...")
-                await self.process_message(next_body)
+                await self.process_message(next_body, attachments=next_attachments)
 
                 if self._cancel_queue_drain:
                     break
@@ -557,7 +645,23 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         if self._cancel_queue_drain:
             self._cancel_queue_drain = False
 
-    async def process_message(self, body: str, trigger_response: bool = True):
+    def _augment_prompt_with_attachments(
+        self, body: str, attachments: list[Attachment] | None
+    ) -> str:
+        if not attachments:
+            return body
+        lines: list[str] = [body.strip(), "", "User attached image(s):"]
+        for a in attachments:
+            lines.append(f"- {a.local_path}")
+        return "\n".join(lines).strip()
+
+    async def process_message(
+        self,
+        body: str,
+        trigger_response: bool = True,
+        *,
+        attachments: list[Attachment] | None = None,
+    ):
         """Send message to agent and relay response."""
         if self.shutting_down:
             return
@@ -572,9 +676,18 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 return
 
             self.sessions.update_last_active(self.session_name)
-            append_to_history(body, self.working_dir, session.claude_session_id)
+            body_for_history = self._augment_prompt_with_attachments(body, attachments)
+            append_to_history(body_for_history, self.working_dir, session.claude_session_id)
             log_activity(body, session=self.session_name, source="xmpp")
-            self.messages.add(self.session_name, "user", body, session.active_engine)
+            self.messages.add(
+                self.session_name, "user", body_for_history, session.active_engine
+            )
+
+            if attachments and session.active_engine == "opencode":
+                if not any(a.public_url for a in attachments):
+                    self.send_reply(
+                        "[Note] OpenCode image attach needs a public URL. Set SWITCH_ATTACHMENTS_ENABLE=1, SWITCH_ATTACHMENTS_TOKEN, and SWITCH_PUBLIC_ATTACHMENT_BASE_URL (public HTTPS) to attach images."
+                    )
 
             if not trigger_response:
                 return
@@ -584,7 +697,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 self.send_reply(f"Unknown engine '{session.active_engine}'.")
                 return
             # ensure_future accepts any awaitable and gives us a cancellable future.
-            self._run_task = asyncio.ensure_future(handler.run(body, session))
+            self._run_task = asyncio.ensure_future(
+                handler.run(body, session, attachments)
+            )
             await self._run_task
 
         except asyncio.CancelledError:
@@ -716,8 +831,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
         return response_text.strip()
 
-    async def _run_claude(self, body: str, session):
+    async def _run_claude(
+        self, body: str, session, attachments: list[Attachment] | None
+    ):
         """Run Claude and handle events."""
+        body = self._augment_prompt_with_attachments(body, attachments)
         self.runner = ClaudeRunner(self.working_dir, self.output_dir, self.session_name)
         response_parts: list[str] = []
         tool_summaries: list[str] = []
@@ -759,7 +877,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 self._stop_typing_loop()
                 self.send_reply("Cancelled.")
 
-    async def _run_opencode(self, body: str, session):
+    async def _run_opencode(
+        self, body: str, session, attachments: list[Attachment] | None
+    ):
         """Run OpenCode and handle events."""
         # Set up question callback for handling AI questions
         question_callback = self._create_question_callback()
@@ -782,7 +902,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self.log.info(f"Starting OpenCode run for: {body[:50]}...")
         try:
             async for event_type, content in self.runner.run(
-                body, session.opencode_session_id
+                body, session.opencode_session_id, attachments=attachments
             ):
                 if self.shutting_down:
                     return

@@ -22,6 +22,8 @@ from src.runners.opencode.models import (
     QuestionCallback,
 )
 
+from src.attachments import Attachment
+
 log = logging.getLogger("opencode")
 
 
@@ -464,7 +466,11 @@ class OpenCodeRunner(BaseRunner):
         self._abort_task = None
 
     async def run(
-        self, prompt: str, session_id: str | None = None
+        self,
+        prompt: str,
+        session_id: str | None = None,
+        *,
+        attachments: list[Attachment] | None = None,
     ) -> AsyncIterator[Event]:
         """Run OpenCode, yielding (event_type, content) tuples.
 
@@ -515,6 +521,7 @@ class OpenCodeRunner(BaseRunner):
                         session,
                         session_id,
                         prompt,
+                        attachments,
                         self._build_model_payload(),
                         self.agent,
                         self.reasoning_mode,
