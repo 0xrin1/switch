@@ -44,7 +44,9 @@ flowchart LR
 
 Chat with AI coding assistants from any open source chat app. Each conversation becomes a separate contact, making it easy to manage multiple concurrent sessions from your phone or desktop.
 
-Under the hood, Switch uses **XMPP** — an open chat protocol (the same one that powers Google Talk, WhatsApp's backend, etc.). You don't need to know or care about the protocol. All it means in practice is that you pick a free, open source chat app — [Conversations](https://conversations.im/) on Android, [Monal](https://monal-im.org/) on iOS, [Gajim](https://gajim.org/) or [Dino](https://dino.im/) on desktop — and your AI sessions show up as contacts, just like talking to a friend.
+Under the hood, Switch uses **XMPP** — an open chat protocol (the same one that powers Google Talk, WhatsApp's backend, etc.). You don't need to know or care about the protocol. All it means in practice is that you pick a free, open source chat app — [Conversations](https://conversations.im/) on Android, [Monal](https://monal-im.org/) on iOS, and on desktop the XMPP client of choice is [switch-mac-os](https://github.com/0xrin1/switch-mac-os/tree/main) (macOS). [Gajim](https://gajim.org/) and [Dino](https://dino.im/) also work.
+
+This project is heavily vibe coded and heavily WIP. Expect rough edges and breaking changes.
 
 No vendor lock-in. No proprietary client. Just a normal chat app you already know how to use.
 
