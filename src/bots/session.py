@@ -72,6 +72,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self.processing = False
         self.shutting_down = False
         self.message_queue: asyncio.Queue[str] = asyncio.Queue()
+        # When set, queued messages should be dropped and the queue drain loop
+        # should stop after the current in-flight work unwinds.
+        self._cancel_queue_drain = False
         self._pending_question_answers: dict[str, asyncio.Future[str]] = {}
         self.log = logging.getLogger(f"session.{session_name}")
         self.init_ralph(RalphLoopRepository(db))
@@ -165,6 +168,17 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         Returns True if there was something to cancel.
         """
         cancelled_any = False
+
+        # Always stop queue churn: drop any queued messages and prevent the
+        # drain loop from continuing once the current run unwinds.
+        self._cancel_queue_drain = True
+        if not self.message_queue.empty():
+            cancelled_any = True
+            while not self.message_queue.empty():
+                try:
+                    self.message_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
 
         if self.ralph_loop:
             cancelled_any = True
@@ -403,12 +417,27 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
     async def _process_with_queue(self, body: str):
         """Process a message and then drain any queued messages."""
+        # New user work starts a new drain window.
+        self._cancel_queue_drain = False
         await self.process_message(body)
+
+        # If a /cancel happened while this message was in-flight, don't churn
+        # through any queued messages.
+        if self._cancel_queue_drain:
+            self._cancel_queue_drain = False
+            return
 
         # Process any queued messages
         while not self.message_queue.empty():
             try:
+                if self._cancel_queue_drain:
+                    break
                 next_body = self.message_queue.get_nowait()
+
+                # /cancel may have fired after we dequeued but before we start.
+                if self._cancel_queue_drain:
+                    break
+
                 queue_remaining = self.message_queue.qsize()
                 if queue_remaining > 0:
                     self.send_reply(
@@ -417,8 +446,15 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 else:
                     self.send_reply("Processing queued message...")
                 await self.process_message(next_body)
+
+                if self._cancel_queue_drain:
+                    break
             except asyncio.QueueEmpty:
                 break
+
+        # Reset after drain loop ends.
+        if self._cancel_queue_drain:
+            self._cancel_queue_drain = False
 
     async def process_message(self, body: str, trigger_response: bool = True):
         """Send message to agent and relay response."""
