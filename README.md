@@ -82,6 +82,38 @@ cp .env.example .env
 uv run python -m src.bridge
 ```
 
+If you're using OpenCode orchestrators (`oc@...`, `oc-gpt@...`, etc.), make sure the OpenCode server is running locally (Switch connects over HTTP + SSE).
+
+## Running as Services (systemd --user)
+
+Switch is commonly run as a user service alongside an OpenCode server:
+
+```bash
+# Start/restart Switch (XMPP bridge)
+systemctl --user restart switch
+
+# Start/restart OpenCode server (HTTP + SSE)
+systemctl --user restart opencode
+
+# Follow logs
+journalctl --user -u switch -f
+journalctl --user -u opencode -f
+```
+
+## OpenCode Streaming and Progress Updates
+
+OpenCode sessions stream output and tool events over SSE. If a session looks "stuck", it's often one of:
+
+- **No SSE events** (progress/tool updates don't arrive)
+- **Long-running calls** (you may only get a final response unless tool progress is enabled)
+
+Useful env vars (set in `.env`, then restart `switch.service`):
+
+- `OPENCODE_HTTP_TIMEOUT_S`: Total HTTP timeout for long runs
+- `OPENCODE_SSE_CONNECT_TIMEOUT_S`: How long to wait when establishing the SSE stream
+- `SWITCH_LOG_TOOL_INPUT=1`: Include tool inputs (e.g., bash commands) in progress pings
+- `SWITCH_LOG_TOOL_INPUT_MAX`: Cap tool-input preview length
+
 ## Orchestrator Contacts
 
 Each AI backend shows up as a contact in your chat app. Message any of them to start a session:
