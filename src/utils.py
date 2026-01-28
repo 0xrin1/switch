@@ -213,14 +213,9 @@ class BaseXMPPBot(ClientXMPP):
         self.enable_starttls = False
         self.enable_direct_tls = False
         self.enable_plaintext = True
-        # Be explicit: plaintext TCP only.
         # slixmpp.ClientXMPP.connect expects a single address tuple.
-        kwargs = {
-            "use_ssl": False,
-            "force_starttls": False,
-            "disable_starttls": True,
-        }
-        self.connect((server, port), **kwargs)  # type: ignore[arg-type,call-arg]
+        # TLS behavior is governed by the enable_* flags above.
+        self.connect((server, port))  # type: ignore[arg-type]
 
     def set_connected(self, connected: bool) -> None:
         if connected:
