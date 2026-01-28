@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
 
+from slixmpp.xmlstream import ET
+
 from src.bots.ralph_mixin import RalphMixin
 from src.commands import CommandHandler
 from src.db import MessageRepository, RalphLoopRepository, SessionRepository
@@ -137,14 +139,31 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         await asyncio.sleep(5)
         self.connect()
 
-    def send_reply(self, text: str, recipient: str | None = None, max_len: int = 100000):
+    def send_reply(
+        self,
+        text: str,
+        recipient: str | None = None,
+        *,
+        meta_type: str | None = None,
+        meta_tool: str | None = None,
+    ):
         """Send message, splitting if needed."""
         if self.shutting_down:
             return
+
+        max_len = 100000
         target = recipient or self.xmpp_recipient
         if len(text) <= max_len:
             msg = self.make_message(mto=target, mbody=text, mtype="chat")
             msg["chat_state"] = "active"
+
+            if meta_type:
+                meta = ET.Element("{urn:switch:message-meta}meta")
+                meta.set("type", meta_type)
+                if meta_tool:
+                    meta.set("tool", meta_tool)
+                msg.xml.append(meta)
+
             msg.send()
             return
 
@@ -156,7 +175,33 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             body = header + part + footer if total > 1 else part
             msg = self.make_message(mto=target, mbody=body, mtype="chat")
             msg["chat_state"] = "active" if i == total else "composing"
+
+            if meta_type:
+                meta = ET.Element("{urn:switch:message-meta}meta")
+                meta.set("type", meta_type)
+                if meta_tool:
+                    meta.set("tool", meta_tool)
+                msg.xml.append(meta)
+
             msg.send()
+
+    @staticmethod
+    def _infer_meta_tool_from_summary(summary: str) -> str | None:
+        """Best-effort mapping from tool summary text to meta.tool."""
+        # OpenCode tool summaries look like: "[tool:bash ...]".
+        if summary.startswith("[tool:"):
+            end = summary.find("]")
+            head = summary[:end] if end != -1 else summary
+            inner = head[len("[tool:") :]
+            tool = inner.split(maxsplit=1)[0].strip()
+            return tool or None
+
+        # Claude tool summaries look like: "[Bash: ...]" / "[Read: ...]".
+        if summary.startswith("[") and ":" in summary:
+            name = summary[1:].split(":", 1)[0].strip()
+            return name.lower() if name else None
+
+        return None
 
     # -------------------------------------------------------------------------
     # Cancellation / shutdown
@@ -358,7 +403,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             display = (
                 output[:4000] + "\n... (truncated)" if len(output) > 4000 else output
             )
-            self.send_reply(f"$ {cmd}\n{display}")
+            self.send_reply(
+                f"$ {cmd}\n{display}",
+                meta_type="tool-result",
+                meta_tool="bash",
+            )
 
             context_msg = f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
             await self.process_message(context_msg, trigger_response=False)
@@ -596,7 +645,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 tool_summaries.append(content)
                 if len(tool_summaries) - last_progress_at >= 8:
                     last_progress_at = len(tool_summaries)
-                    self.send_reply(f"... {' '.join(tool_summaries[-3:])}")
+                    self.send_reply(
+                        f"... {' '.join(tool_summaries[-3:])}",
+                        meta_type="tool",
+                        meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
+                    )
             elif event_type == "result":
                 self._send_result(
                     tool_summaries, response_parts, content, session.active_engine
@@ -653,10 +706,18 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                     is_bash = content.startswith("[tool:bash")
                     if is_bash or len(tool_summaries) == 1:
                         last_progress_at = len(tool_summaries)
-                        self.send_reply(f"... {content}")
+                        self.send_reply(
+                            f"... {content}",
+                            meta_type="tool",
+                            meta_tool=self._infer_meta_tool_from_summary(content),
+                        )
                     elif len(tool_summaries) - last_progress_at >= 8:
                         last_progress_at = len(tool_summaries)
-                        self.send_reply(f"... {' '.join(tool_summaries[-3:])}")
+                        self.send_reply(
+                            f"... {' '.join(tool_summaries[-3:])}",
+                            meta_type="tool",
+                            meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
+                        )
                 elif event_type == "question" and isinstance(content, Question):
                     # Question is being handled by callback, just log it
                     self.log.info(f"Question asked: {content.request_id}")
@@ -764,16 +825,30 @@ class SessionBot(RalphMixin, BaseXMPPBot):
     ):
         """Format and send final result."""
         parts = []
-        if tool_summaries:
+
+        show_tools = os.getenv("SWITCH_SEND_TOOL_SUMMARIES", "1").lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+        show_stats = os.getenv("SWITCH_SEND_RUN_STATS", "1").lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+
+        if show_tools and tool_summaries:
             tools = " ".join(tool_summaries[:5])
             if len(tool_summaries) > 5:
                 tools += f" +{len(tool_summaries) - 5}"
             parts.append(tools)
         if response_parts:
             parts.append(response_parts[-1])
-        parts.append(stats)
 
-        self.send_reply("\n\n".join(parts))
+        if show_stats and stats:
+            parts.append(stats)
+
+        self.send_reply("\n\n".join([p for p in parts if p]))
         self.messages.add(
             self.session_name,
             "assistant",

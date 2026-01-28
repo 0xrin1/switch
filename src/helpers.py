@@ -63,15 +63,32 @@ def run_ejabberdctl(ejabberd_ctl: str, *args) -> tuple[bool, str]:
 
 
 def create_xmpp_account(
-    username: str, password: str, ejabberd_ctl: str, domain: str, log
+    username: str,
+    password: str,
+    ejabberd_ctl: str,
+    domain: str,
+    log,
+    *,
+    allow_conflict: bool = False,
 ) -> tuple[bool, str]:
-    """Create a new ejabberd account."""
+    """Create a new ejabberd account.
+
+    When allow_conflict=True, "already exists" conflicts are treated as success so
+    startup paths can be idempotent.
+    """
     success, output = run_ejabberdctl(ejabberd_ctl, "register", username, domain, password)
     if success:
         log.info(f"Created XMPP account: {username}@{domain}")
-    else:
-        log.error(f"Failed to create account {username}: {output}")
-    return success, output
+        return True, output
+
+    out_l = (output or "").lower()
+    if "conflict" in out_l or "already registered" in out_l or "already" in out_l:
+        # ejabberd returns conflict when the account already exists.
+        log.info(f"XMPP account already exists: {username}@{domain}")
+        return (True, output) if allow_conflict else (False, output)
+
+    log.error(f"Failed to create account {username}: {output}")
+    return False, output
 
 
 def register_unique_account(

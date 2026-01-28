@@ -206,37 +206,73 @@ class DirectoryBot(BaseXMPPBot):
             self.log.debug("Failed to publish pubsub update for %s: %s", node, exc)
 
     def _ensure_pubsub_node(self, node: str) -> None:
+        pubsub = cast(Any, self["xep_0060"])
         try:
-            pubsub = cast(Any, self["xep_0060"])
-            pubsub.create_node(self.pubsub_service_jid, node)  # pyright: ignore[reportAttributeAccessIssue]
+            result = pubsub.create_node(  # pyright: ignore[reportAttributeAccessIssue]
+                self.pubsub_service_jid,
+                node,
+            )
         except IqTimeout:
             self.log.warning(
                 "PubSub create_node timed out (node=%s service=%s)",
                 node,
                 self.pubsub_service_jid,
             )
+            return
         except IqError as exc:
-            # Common: conflict (node already exists), forbidden (policy), not-authorized.
+            # Some slixmpp versions raise synchronously.
             try:
                 condition = exc.iq["error"]["condition"]
                 text = exc.iq["error"]["text"]
             except Exception:
                 condition = "unknown"
                 text = ""
-
-            if condition == "conflict":
-                return
-
-            self.log.warning(
-                "PubSub create_node failed (node=%s service=%s condition=%s %s)",
-                node,
-                self.pubsub_service_jid,
-                condition,
-                text,
-            )
+            if condition != "conflict":
+                self.log.warning(
+                    "PubSub create_node failed (node=%s service=%s condition=%s %s)",
+                    node,
+                    self.pubsub_service_jid,
+                    condition,
+                    text,
+                )
+            return
         except Exception:
-            # Node may already exist, or creation may be disallowed.
-            pass
+            return
+
+        # Other slixmpp versions return an awaitable/Future; ensure we always
+        # consume exceptions so we don't get "Future exception was never retrieved".
+        if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+            task = asyncio.ensure_future(result)
+
+            def _done(t: asyncio.Future):
+                try:
+                    t.result()
+                except IqError as exc:
+                    try:
+                        condition = exc.iq["error"]["condition"]
+                        text = exc.iq["error"]["text"]
+                    except Exception:
+                        condition = "unknown"
+                        text = ""
+                    if condition != "conflict":
+                        self.log.warning(
+                            "PubSub create_node failed (node=%s service=%s condition=%s %s)",
+                            node,
+                            self.pubsub_service_jid,
+                            condition,
+                            text,
+                        )
+                except IqTimeout:
+                    self.log.warning(
+                        "PubSub create_node timed out (node=%s service=%s)",
+                        node,
+                        self.pubsub_service_jid,
+                    )
+                except Exception:
+                    # Best-effort.
+                    return
+
+            task.add_done_callback(_done)
 
     # ---------------------------------------------------------------------
     # Helpers

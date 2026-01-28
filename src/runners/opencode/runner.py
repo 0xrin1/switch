@@ -95,6 +95,14 @@ class OpenCodeRunner(BaseRunner):
             return self._apply_text_update(text, state)
         return None
 
+    def _handle_message_meta(self, event: dict, state: RunState) -> Event | None:
+        """Track message roles for message_part filtering."""
+        message_id = event.get("messageID")
+        role = event.get("role")
+        if isinstance(message_id, str) and message_id and isinstance(role, str) and role:
+            state.message_roles[message_id] = role
+        return None
+
     def _handle_tool_use(self, event: dict, state: RunState) -> Event | None:
         """Handle tool_use event - tracks tool invocations."""
         part = event.get("part", {})
@@ -258,10 +266,22 @@ class OpenCodeRunner(BaseRunner):
             "error": self._handle_error,
             "question.asked": self._handle_question,
             "question": self._handle_question,
+            "message_meta": self._handle_message_meta,
         }
 
         # Server-mode streams often send message events rather than "text".
         if event_type == "message_part":
+            message_id = event.get("messageID")
+            role = (
+                state.message_roles.get(message_id)
+                if isinstance(message_id, str) and message_id
+                else None
+            )
+            # Only treat assistant message parts as output. Unknown roles are ignored
+            # to avoid echoing the user's prompt.
+            if role != "assistant":
+                return None
+
             text = event.get("text", "")
             if isinstance(text, str):
                 return self._apply_text_update(text, state)

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from typing import Dict
+
 
 @dataclass
 class RunState:
@@ -24,6 +26,10 @@ class RunState:
     saw_result: bool = False
     saw_error: bool = False
     raw_output: list[str] = field(default_factory=list)
+
+    # OpenCode server-mode can emit message events for both user and assistant.
+    # Track roles by message ID so we can ignore user echoes.
+    message_roles: Dict[str, str] = field(default_factory=dict)
 
     @property
     def duration_s(self) -> float:

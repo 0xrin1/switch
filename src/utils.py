@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from slixmpp.clientxmpp import ClientXMPP
+from slixmpp.xmlstream import ET
 
 # =============================================================================
 # Environment Loading
@@ -180,13 +181,30 @@ class BaseXMPPBot(ClientXMPP):
         except asyncio.TimeoutError:
             return False
 
-    def send_reply(self, text: str, recipient: str | None = None):
+    def send_reply(
+        self,
+        text: str,
+        recipient: str | None = None,
+        *,
+        meta_type: str | None = None,
+        meta_tool: str | None = None,
+    ):
         """Send a chat message to recipient."""
         to = recipient or self.recipient
         if not to:
             raise ValueError("No recipient specified")
         msg = self.make_message(mto=to, mbody=text, mtype="chat")
         msg["chat_state"] = "active"
+
+        # Optional message metadata extension (XMPP custom namespace).
+        # Old clients will ignore unknown extension elements.
+        if meta_type:
+            meta = ET.Element("{urn:switch:message-meta}meta")
+            meta.set("type", meta_type)
+            if meta_tool:
+                meta.set("tool", meta_tool)
+            msg.xml.append(meta)
+
         msg.send()
 
     def send_typing(self, recipient: str | None = None):

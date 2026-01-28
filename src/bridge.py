@@ -73,7 +73,14 @@ async def main():
             if DIRECTORY_CFG.get("autocreate"):
                 username = directory_jid.split("@")[0]
                 # Best-effort: if account already exists, ejabberd will return conflict.
-                create_xmpp_account(username, directory_password, EJABBERD_CTL, XMPP_DOMAIN, log)
+                create_xmpp_account(
+                    username,
+                    directory_password,
+                    EJABBERD_CTL,
+                    XMPP_DOMAIN,
+                    log,
+                    allow_conflict=True,
+                )
             await manager.start_directory_service(
                 jid=directory_jid,
                 password=directory_password,

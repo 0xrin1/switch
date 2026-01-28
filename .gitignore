@@ -5,6 +5,7 @@
 .opencode/bun.lock
 output/
 sessions.db
+tmp/
 __pycache__/
 *.pyc
 *.pyo
