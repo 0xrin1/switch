@@ -126,14 +126,24 @@ class ClaudeRunner(BaseRunner):
         name = block.get("name", "?")
         tool_input = block.get("input", {})
 
+        # Normalize tool summary format to match OpenCode-style tool markers.
+        # This makes downstream clients/UI logic consistent across engines.
+        tool_id = str(name).strip().lower() if name else "?"
+
         if name == "Bash":
-            preview = tool_input.get("command", "")[:40]
-            desc = f"[{name}: {preview}]"
+            preview = ""
+            if isinstance(tool_input, dict):
+                preview = str(tool_input.get("command", "") or "")
+            preview = preview.strip().replace("\n", " ")[:60]
+            desc = f"[tool:{tool_id} {preview}]" if preview else f"[tool:{tool_id}]"
         elif name in ("Read", "Write", "Edit"):
-            path = tool_input.get("file_path", "")
-            desc = f"[{name}: {Path(path).name}]"
+            path = ""
+            if isinstance(tool_input, dict):
+                path = str(tool_input.get("file_path", "") or "")
+            leaf = Path(path).name if path else ""
+            desc = f"[tool:{tool_id} {leaf}]" if leaf else f"[tool:{tool_id}]"
         else:
-            desc = f"[{name}]"
+            desc = f"[tool:{tool_id}]" if tool_id else "[tool:?]"
 
         self._log_to_file(f"{desc}\n")
         return ("tool", desc)

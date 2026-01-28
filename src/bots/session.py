@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
@@ -73,6 +74,8 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self._run_task: asyncio.Future | None = None
         self.processing = False
         self.shutting_down = False
+        self._typing_task: asyncio.Task | None = None
+        self._typing_last_sent = 0.0
         self.message_queue: asyncio.Queue[str] = asyncio.Queue()
         # When set, queued messages should be dropped and the queue drain loop
         # should stop after the current in-flight work unwinds.
@@ -528,7 +531,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             return
         self.processing = True
         if trigger_response:
-            self.send_typing()
+            self._start_typing_loop()
 
         try:
             session = self.sessions.get(self.session_name)
@@ -561,6 +564,43 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         finally:
             self._run_task = None
             self.processing = False
+            self._stop_typing_loop()
+
+    def _maybe_send_typing(self, *, min_interval_s: float = 5.0) -> None:
+        """Best-effort composing keepalive (rate-limited)."""
+        if self.shutting_down:
+            return
+        now = time.monotonic()
+        if now - self._typing_last_sent < min_interval_s:
+            return
+        self._typing_last_sent = now
+        self.send_typing()
+
+    async def _typing_loop(self, *, interval_s: float = 15.0) -> None:
+        """Periodically refresh composing while a run is in-flight."""
+        try:
+            while self.processing and not self.shutting_down:
+                # Many clients clear "typing" after ~10-30s unless refreshed.
+                self._maybe_send_typing(min_interval_s=0.0)
+                await asyncio.sleep(interval_s)
+        except asyncio.CancelledError:
+            return
+
+    def _start_typing_loop(self) -> None:
+        # If a prior loop is still running, keep it.
+        if self._typing_task and not self._typing_task.done():
+            self._maybe_send_typing(min_interval_s=0.0)
+            return
+
+        # Send immediately, then keepalive in the background.
+        self._maybe_send_typing(min_interval_s=0.0)
+        self._typing_task = asyncio.create_task(self._typing_loop())
+
+    def _stop_typing_loop(self) -> None:
+        task = self._typing_task
+        self._typing_task = None
+        if task and not task.done():
+            task.cancel()
 
     async def run_opencode_one_shot(
         self,
@@ -674,13 +714,17 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                         meta_type="tool",
                         meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
                     )
+                    # Progress messages often clear typing indicators; reassert.
+                    self._maybe_send_typing(min_interval_s=5.0)
             elif event_type == "result":
                 self._send_result(
                     tool_summaries, response_parts, content, session.active_engine
                 )
             elif event_type == "error":
+                self._stop_typing_loop()
                 self.send_reply(f"Error: {content}")
             elif event_type == "cancelled":
+                self._stop_typing_loop()
                 self.send_reply("Cancelled.")
 
     async def _run_opencode(self, body: str, session):
@@ -735,6 +779,8 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                             meta_type="tool",
                             meta_tool=self._infer_meta_tool_from_summary(content),
                         )
+                        # Tool/progress messages often clear typing indicators.
+                        self._maybe_send_typing(min_interval_s=5.0)
                     elif len(tool_summaries) - last_progress_at >= 8:
                         last_progress_at = len(tool_summaries)
                         self.send_reply(
@@ -742,6 +788,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                             meta_type="tool",
                             meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
                         )
+                        self._maybe_send_typing(min_interval_s=5.0)
                 elif event_type == "question" and isinstance(content, Question):
                     # Question is being handled by callback, just log it
                     self.log.info(f"Question asked: {content.request_id}")
@@ -772,8 +819,10 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                     )
                 elif event_type == "error":
                     self.log.warning(f"OpenCode error event: {content}")
+                    self._stop_typing_loop()
                     self.send_reply(f"Error: {content}")
                 elif event_type == "cancelled":
+                    self._stop_typing_loop()
                     self.send_reply("Cancelled.")
 
             self.log.info(f"OpenCode run completed after {event_count} events")
@@ -859,6 +908,8 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         engine: str,
     ):
         """Format and send final result."""
+        # Ensure we don't keep sending composing after the final message.
+        self._stop_typing_loop()
         parts = []
 
         show_tools = os.getenv("SWITCH_SEND_TOOL_SUMMARIES", "1").lower() not in (
@@ -896,8 +947,9 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 meta_attrs[str(k)] = str(v)
             stats_text = stats.get("summary") if isinstance(stats.get("summary"), str) else None
 
-        if show_stats and stats_text:
-            parts.append(stats_text)
+        # Deliberately do not append the run-stats summary to the message body.
+        # We send stats via the `urn:switch:message-meta` extension so clients
+        # can render it without duplicating a plaintext footer.
 
         self.send_reply(
             "\n\n".join([p for p in parts if p]),
