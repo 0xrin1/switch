@@ -188,6 +188,7 @@ class BaseXMPPBot(ClientXMPP):
         *,
         meta_type: str | None = None,
         meta_tool: str | None = None,
+        meta_attrs: dict[str, str] | None = None,
     ):
         """Send a chat message to recipient."""
         to = recipient or self.recipient
@@ -203,6 +204,15 @@ class BaseXMPPBot(ClientXMPP):
             meta.set("type", meta_type)
             if meta_tool:
                 meta.set("tool", meta_tool)
+
+            if meta_attrs:
+                for k, v in meta_attrs.items():
+                    if not k or v is None:
+                        continue
+                    # Reserve "type" and "tool" for explicit args.
+                    if k in ("type", "tool"):
+                        continue
+                    meta.set(str(k), str(v))
             msg.xml.append(meta)
 
         msg.send()

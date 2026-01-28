@@ -146,6 +146,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         *,
         meta_type: str | None = None,
         meta_tool: str | None = None,
+        meta_attrs: dict[str, str] | None = None,
     ):
         """Send message, splitting if needed."""
         if self.shutting_down:
@@ -162,6 +163,14 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 meta.set("type", meta_type)
                 if meta_tool:
                     meta.set("tool", meta_tool)
+
+                if meta_attrs:
+                    for k, v in meta_attrs.items():
+                        if not k or v is None:
+                            continue
+                        if k in ("type", "tool"):
+                            continue
+                        meta.set(str(k), str(v))
                 msg.xml.append(meta)
 
             msg.send()
@@ -181,6 +190,14 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 meta.set("type", meta_type)
                 if meta_tool:
                     meta.set("tool", meta_tool)
+
+                if meta_attrs:
+                    for k, v in meta_attrs.items():
+                        if not k or v is None:
+                            continue
+                        if k in ("type", "tool"):
+                            continue
+                        meta.set(str(k), str(v))
                 msg.xml.append(meta)
 
             msg.send()
@@ -638,11 +655,18 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             body, session.claude_session_id
         ):
             if event_type == "session_id":
-                self.sessions.update_claude_session_id(self.session_name, content)
+                session_id = content if isinstance(content, str) else None
+                if session_id:
+                    self.sessions.update_claude_session_id(self.session_name, session_id)
             elif event_type == "text":
-                response_parts = [content]
+                text = content if isinstance(content, str) else None
+                if text is not None:
+                    response_parts = [text]
             elif event_type == "tool":
-                tool_summaries.append(content)
+                summary = content if isinstance(content, str) else None
+                if summary is None:
+                    continue
+                tool_summaries.append(summary)
                 if len(tool_summaries) - last_progress_at >= 8:
                     last_progress_at = len(tool_summaries)
                     self.send_reply(
@@ -727,11 +751,22 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                     model_short = (
                         session.model_id.split("/")[-1] if session.model_id else "?"
                     )
-                    stats = (
-                        f"[{model_short} {content.tokens_in}/{content.tokens_out} tok"
-                        f" r{content.tokens_reasoning} c{content.tokens_cache_read}/{content.tokens_cache_write}"
-                        f" ${content.cost:.3f} {content.duration_s:.1f}s]"
-                    )
+                    stats = {
+                        "engine": "opencode",
+                        "model": model_short,
+                        "tokens_in": content.tokens_in,
+                        "tokens_out": content.tokens_out,
+                        "tokens_reasoning": content.tokens_reasoning,
+                        "tokens_cache_read": content.tokens_cache_read,
+                        "tokens_cache_write": content.tokens_cache_write,
+                        "cost_usd": f"{content.cost:.3f}",
+                        "duration_s": f"{content.duration_s:.1f}",
+                        "summary": (
+                            f"[{model_short} {content.tokens_in}/{content.tokens_out} tok"
+                            f" r{content.tokens_reasoning} c{content.tokens_cache_read}/{content.tokens_cache_write}"
+                            f" ${content.cost:.3f} {content.duration_s:.1f}s]"
+                        ),
+                    }
                     self._send_result(
                         tool_summaries, response_parts, stats, session.active_engine
                     )
@@ -820,7 +855,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self,
         tool_summaries: list[str],
         response_parts: list[str],
-        stats: str,
+        stats: object,
         engine: str,
     ):
         """Format and send final result."""
@@ -845,10 +880,30 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         if response_parts:
             parts.append(response_parts[-1])
 
-        if show_stats and stats:
-            parts.append(stats)
+        meta_type = None
+        meta_attrs: dict[str, str] | None = None
+        stats_text: str | None = None
 
-        self.send_reply("\n\n".join([p for p in parts if p]))
+        if isinstance(stats, str):
+            stats_text = stats
+        elif isinstance(stats, dict):
+            # Convert all values to strings for XML attributes.
+            meta_type = "run-stats"
+            meta_attrs = {}
+            for k, v in stats.items():
+                if v is None:
+                    continue
+                meta_attrs[str(k)] = str(v)
+            stats_text = stats.get("summary") if isinstance(stats.get("summary"), str) else None
+
+        if show_stats and stats_text:
+            parts.append(stats_text)
+
+        self.send_reply(
+            "\n\n".join([p for p in parts if p]),
+            meta_type=meta_type,
+            meta_attrs=meta_attrs,
+        )
         self.messages.add(
             self.session_name,
             "assistant",

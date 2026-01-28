@@ -30,9 +30,7 @@ class ClaudeResult:
     duration_s: float
 
 
-# NOTE: ClaudeRunner currently only yields string payloads.
-# Keep the event type accurate so downstream consumers can type-narrow cleanly.
-Event = tuple[str, str]
+Event = tuple[str, object]
 
 
 class ClaudeRunner(BaseRunner):
@@ -190,7 +188,19 @@ class ClaudeRunner(BaseRunner):
         context_k = context_window / 1000
         summary = f"[{model_name} {turns}t {state.tool_count}tools ${cost:.3f} {duration:.1f}s | {tokens_k:.1f}k/{context_k:.0f}k]"
 
-        return ("result", summary)
+        payload = {
+            "engine": "claude",
+            "model": model_name,
+            "turns": turns,
+            "tool_count": state.tool_count,
+            "tokens_total": total_tokens,
+            "context_window": context_window,
+            "cost_usd": float(cost),
+            "duration_s": float(duration),
+            "summary": summary,
+        }
+
+        return ("result", payload)
 
     def _parse_event(self, event: dict, state: RunState) -> list[Event]:
         """Parse a JSON event and return yield values."""
@@ -215,7 +225,7 @@ class ClaudeRunner(BaseRunner):
             ("session_id", str) - Session ID for continuity
             ("text", str) - Response text
             ("tool", str) - Tool invocation description
-            ("result", str) - Final result summary
+            ("result", dict) - Final result stats payload
             ("error", str) - Error message
         """
         log.info(f"Claude: {prompt[:50]}...")
