@@ -42,7 +42,7 @@ flowchart LR
 ```
 <!-- /DIAGRAM:system -->
 
-Chat with AI coding assistants from any open source chat app.
+Chat with AI coding assistants from any XMPP client.
 
 ## One Contact = One Session
 
@@ -63,7 +63,7 @@ This is not a cosmetic difference. It changes how you work:
 - **Sessions can message each other.** An agent can spawn a child session and receive its results as XMPP messages. Coordination happens through the same protocol you use.
 - **History is per-contact.** Scroll up in any session to see its full history. No single bot log to grep through.
 
-Under the hood, Switch uses **XMPP** — an open chat protocol (the same one that powers Google Talk, WhatsApp's backend, etc.). You don't need to know or care about the protocol. All it means in practice is that you pick a free, open source chat app — [Conversations](https://conversations.im/) on Android, [Monal](https://monal-im.org/) on iOS, and on desktop the XMPP client of choice is [switch-mac-os](https://github.com/0xrin1/switch-mac-os/tree/main) (macOS). [Gajim](https://gajim.org/) and [Dino](https://dino.im/) also work.
+Under the hood, Switch uses **XMPP** - an open chat protocol. You don't need to know or care about the protocol. In practice: pick a chat app - [Conversations](https://conversations.im/) (Android), [Monal](https://monal-im.org/) (iOS), or on desktop [switch-mac-os](https://github.com/chknlittle/switch-mac-os) (macOS). [Gajim](https://gajim.org/) and [Dino](https://dino.im/) also work.
 
 This project is heavily vibe coded and heavily WIP. Expect rough edges and breaking changes.
 
@@ -77,8 +77,11 @@ Designed to run on a dedicated Linux machine (old laptop, mini PC, home server) 
 - **Multiple orchestrators**: Multiple contacts for different AI backends
 - **Mobile-friendly**: Works with any open source chat app (Conversations, Monal, Gajim, Dino, etc.)
 - **Session persistence**: Resume conversations after restarts
+- **Rich message metadata**: tool/tool-result blocks, run stats, questions, and attachments (custom XMPP meta extension)
+- **Image attachments**: paste/drop/upload in supported clients; Switch downloads and serves images via a tiny HTTP server
 - **Ralph loops**: Autonomous iteration for long-running tasks
 - **Shell access**: Run commands directly from chat
+- **Busy handling**: Messages queue while a session is running; spawn a sibling session with `+...`
 - **Local memory vault**: Gitignored notes under `memory/`
 
 ## Quick Start
@@ -133,6 +136,35 @@ Useful env vars (set in `.env`, then restart `switch.service`):
 - `SWITCH_LOG_TOOL_INPUT=1`: Include tool inputs (e.g., bash commands) in progress pings
 - `SWITCH_LOG_TOOL_INPUT_MAX`: Cap tool-input preview length
 
+## Rich Rendering (Meta Messages)
+
+Switch sends an optional `<meta xmlns="urn:switch:message-meta" .../>` element on messages so clients can render richer UI.
+
+Used today by `switch-mac-os`:
+
+- `tool` / `tool-result`: monospace blocks (tool name badge)
+- `run-stats`: model + token/cost/duration footer
+- `question`: interactive question cards
+- `attachment`: image/file attachment cards
+
+Clients that don't implement this extension will still see a normal message body.
+
+## Image Attachments
+
+Switch supports images in two directions:
+
+- **From clients to Switch**: clients can include image URLs (message text or `jabber:x:oob`).
+- **From Switch to clients**: Switch downloads referenced images and (optionally) serves them back via a local HTTP endpoint, emitting an `attachment` meta payload with `public_url`.
+
+Useful env vars:
+
+- `SWITCH_ATTACHMENTS_DIR`: where images are stored (default: `./uploads`)
+- `SWITCH_ATTACHMENTS_HOST` / `SWITCH_ATTACHMENTS_PORT`: attachment HTTP server bind address
+- `SWITCH_PUBLIC_ATTACHMENT_BASE_URL`: base URL clients should open (defaults to `http://{host}:{port}`)
+- `SWITCH_ATTACHMENTS_TOKEN`: URL token for the attachment server (auto-generated if not set)
+- `SWITCH_ATTACHMENT_MAX_BYTES`: max download size per image (default: 10MB)
+- `SWITCH_ATTACHMENT_FETCH_TIMEOUT_S`: download timeout (default: 20s)
+
 ## Orchestrator Contacts
 
 Each AI backend shows up as a contact in your chat app. Message any of them to start a session:
@@ -183,14 +215,25 @@ flowchart LR
 
 ## Basic Usage
 
-| Action | Command |
-|--------|---------|
-| New Claude session | Message `cc@...` |
-| New GLM session | Message `oc@...` |
-| New GPT session | Message `oc-gpt@...` |
+Dispatcher (orchestrator) contacts:
+
+| Action | What to send |
+|--------|-------------|
+| Create a new session | Any message to `cc@...`, `oc@...`, `oc-gpt@...`, etc. |
+| List sessions | `/list` |
+| Show recent sessions | `/recent` |
+| Kill a session | `/kill <name>` |
+
+Session contacts:
+
+| Action | What to send |
+|--------|-------------|
+| Run a shell command | `!<command>` (e.g. `!git status`) |
 | Cancel current run | `/cancel` |
-| Run shell command | `!git status` |
-| List sessions | `/list` to any orchestrator |
+| Peek logs | `/peek [N]` |
+| Reset context | `/reset` |
+| Switch engine | `/agent oc` or `/agent cc` |
+| Spawn sibling session (when busy) | `+<message>` |
 
 ## Documentation
 
@@ -211,10 +254,10 @@ flowchart LR
 
 ## Models
 
-- **cc**: Claude Opus via Claude Code CLI
-- **oc**: GLM 4.7 via OpenCode - fast, cheap, good for iteration
-- **oc-gpt**: GPT 5.2 via OpenCode - alternative for comparison
-- **oc-kimi-coding**: Kimi K2.5 via Kimi for Coding
+- `cc`: Claude (Claude Code CLI)
+- `oc`: GLM 4.7 (OpenCode)
+- `oc-gpt`: GPT 5.2 (OpenCode)
+- `oc-kimi-coding`: Kimi K2.5 (OpenCode)
 
 ## License
 

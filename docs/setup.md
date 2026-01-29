@@ -21,6 +21,52 @@ Running in a VM or container defeats the purpose - you want the AI to operate on
   - [OpenCode](https://github.com/opencode-ai/opencode) CLI
   - [Claude Code](https://claude.ai/code) CLI
 
+## Installing ejabberd
+
+Switch expects an XMPP server. The easiest path is running **ejabberd** on the same Linux machine as Switch.
+
+Install + start the service:
+
+Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install ejabberd
+sudo systemctl enable --now ejabberd
+sudo ejabberdctl status
+```
+
+Fedora:
+
+```bash
+sudo dnf install ejabberd
+sudo systemctl enable --now ejabberd
+sudo ejabberdctl status
+```
+
+Arch:
+
+```bash
+sudo pacman -S ejabberd
+sudo systemctl enable --now ejabberd
+sudo ejabberdctl status
+```
+
+Config file is typically `/etc/ejabberd/ejabberd.yml`. The one setting you almost always need to align with Switch is `hosts:` (your XMPP domain). Pick a domain you'll use in JIDs (it can be private/internal if you're only using Tailscale).
+
+Example:
+
+```yaml
+hosts:
+  - "dev.local"
+```
+
+Then restart:
+
+```bash
+sudo systemctl restart ejabberd
+```
+
 ## Installation
 
 1. Clone the repository:
@@ -65,11 +111,29 @@ OC_KIMI_CODING_PASSWORD=
 
 ### Create Dispatcher Account
 
-The dispatcher bot needs a dedicated XMPP account:
+Each orchestrator/dispatcher bot needs a dedicated XMPP account:
 
 ```bash
-ejabberdctl register tx-oc your.xmpp.server <password>
+sudo ejabberdctl register oc dev.local <password>
 ```
+
+If `ejabberdctl` requires root on your system (common with distro packages), set in `.env`:
+
+```bash
+EJABBERD_CTL="sudo ejabberdctl"
+```
+
+Tip: if you're running Switch as a `systemd --user` service, you'll likely want a sudoers rule that allows only the specific `ejabberdctl` subcommands Switch uses without prompting:
+
+```bash
+sudo tee /etc/sudoers.d/switch-ejabberdctl >/dev/null <<'EOF'
+# Allow the switch user to manage XMPP accounts/roster without a password prompt.
+rin ALL=(root) NOPASSWD: /usr/sbin/ejabberdctl register *, /usr/sbin/ejabberdctl unregister *, /usr/sbin/ejabberdctl add_rosteritem *
+EOF
+sudo chmod 0440 /etc/sudoers.d/switch-ejabberdctl
+```
+
+Adjust username/path to `ejabberdctl` to match your system (`which ejabberdctl`).
 
 ### Remote ejabberd
 
