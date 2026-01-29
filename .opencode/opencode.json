@@ -64,7 +64,8 @@
       "default": false,
       "permission": "allow",
       "options": {
-        "reasoning": "normal"
+        "reasoning": "normal",
+        "textVerbosity": "low"
       },
       "tools": {
         "bash": true,
