@@ -27,9 +27,11 @@ def command(name: str, *aliases: str, exact: bool = True):
     def decorator(
         func: Callable[..., Awaitable[bool]],
     ) -> Callable[..., Awaitable[bool]]:
-        func._command_name = name
-        func._command_aliases = aliases
-        func._command_exact = exact
+        # Use setattr so static type checkers don't need to know about the
+        # decorator metadata attributes.
+        setattr(func, "_command_name", name)
+        setattr(func, "_command_aliases", aliases)
+        setattr(func, "_command_exact", exact)
         return func
 
     return decorator
@@ -44,7 +46,7 @@ class CommandHandler:
 
     def __init__(self, bot: "SessionBot"):
         self.bot = bot
-        self._commands: dict[str, tuple[Callable[[str], Awaitable[bool]], bool]] = {}
+        self._commands: dict[str, tuple[Callable[..., Awaitable[bool]], bool]] = {}
         self._discover_commands()
 
     def _discover_commands(self) -> None:
@@ -52,11 +54,13 @@ class CommandHandler:
         for name in dir(self):
             method = getattr(self, name)
             if callable(method) and hasattr(method, "_command_name"):
-                cmd_name = method._command_name
-                exact = method._command_exact
-                self._commands[cmd_name] = (method, exact)
-                for alias in method._command_aliases:
-                    self._commands[alias] = (method, exact)
+                m = cast(Any, method)
+                cmd_name = cast(str, m._command_name)
+                exact = cast(bool, m._command_exact)
+                handler = cast(Callable[..., Awaitable[bool]], method)
+                self._commands[cmd_name] = (handler, exact)
+                for alias in cast(tuple[str, ...], m._command_aliases):
+                    self._commands[alias] = (handler, exact)
 
     async def handle(self, body: str) -> bool:
         """Handle a command. Returns True if command was handled."""
@@ -76,7 +80,7 @@ class CommandHandler:
         """Hard-kill the session (cancel work, close account, stop reconnect)."""
         # Send ack before we start teardown (account deletion can race delivery).
         self.bot.send_reply("Killing session (hard kill)...")
-        asyncio.ensure_future(self.bot.hard_kill())
+        self.bot.spawn_guarded(self.bot.hard_kill(), context="session.hard_kill")
         return True
 
     @command("/cancel")

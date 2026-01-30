@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import json
 import logging
 import os
@@ -177,11 +178,8 @@ class OpenCodeRunner(BaseRunner):
                 return f"pattern={pat!r}" + suffix
 
         # Fallback: JSON (redacted) for everything else.
-        try:
-            redacted = self._redact_tool_input(raw_input)
-            return json.dumps(redacted, ensure_ascii=True, sort_keys=True)
-        except Exception:
-            return str(raw_input)
+        redacted = self._redact_tool_input(raw_input)
+        return json.dumps(redacted, ensure_ascii=True, sort_keys=True, default=str)
 
     def _handle_step_finish(self, event: dict, state: RunState) -> Event | None:
         """Handle step_finish event - accumulates tokens/cost, emits result on stop."""
@@ -306,6 +304,7 @@ class OpenCodeRunner(BaseRunner):
             return
 
         callback_task = asyncio.create_task(self._run_question_callback(question))
+        answered = False
         try:
             while not callback_task.done():
                 if self._cancelled:
@@ -314,13 +313,12 @@ class OpenCodeRunner(BaseRunner):
                 await asyncio.sleep(0.1)
             answers = callback_task.result()
             await self._client.answer_question(session, question, answers)
-        except asyncio.CancelledError:
-            log.info("Question callback cancelled")
-            await self._client.reject_question(session, question)
-            raise
-        except Exception as e:
-            log.error(f"Question callback error: {e}")
-            await self._client.reject_question(session, question)
+            answered = True
+        finally:
+            if not answered:
+                # Avoid leaving the server waiting on a question that will never be answered.
+                with suppress(Exception):
+                    await self._client.reject_question(session, question)
 
     async def _process_event_loop(
         self,
@@ -438,30 +436,18 @@ class OpenCodeRunner(BaseRunner):
         self._cancelled = True
         if sse_task:
             sse_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError, Exception):
                 await sse_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                # Never allow cleanup to mask the real error.
-                pass
         if (
             self._client_session
             and self._active_session_id
             and not self._client_session.closed
         ):
-            try:
-                await self._client.abort_session(
-                    self._client_session, self._active_session_id
-                )
-            except Exception:
-                # Best-effort.
-                pass
+            with suppress(Exception):
+                await self._client.abort_session(self._client_session, self._active_session_id)
         if self._abort_task and not self._abort_task.done():
-            try:
+            with suppress(Exception):
                 await self._abort_task
-            except Exception:
-                pass
         self._client_session = None
         self._abort_task = None
 
@@ -496,25 +482,19 @@ class OpenCodeRunner(BaseRunner):
             # don't fail at a hard-coded limit.
             http_timeout_s = float(os.getenv("OPENCODE_HTTP_TIMEOUT_S", "600"))
             timeout = aiohttp.ClientTimeout(total=http_timeout_s)
-            async with aiohttp.ClientSession(
-                auth=self._client.auth, timeout=timeout
-            ) as session:
+            async with aiohttp.ClientSession(auth=self._client.auth, timeout=timeout) as session:
                 self._client_session = session
                 await self._client.check_health(session)
 
                 if not session_id:
-                    session_id = await self._client.create_session(
-                        session, self.session_name
-                    )
+                    session_id = await self._client.create_session(session, self.session_name)
 
                 state.session_id = session_id
                 self._active_session_id = session_id
                 yield ("session_id", session_id)
 
                 sse_task = asyncio.create_task(
-                    self._client.stream_events(
-                        session, event_queue, should_stop=lambda: self._cancelled
-                    )
+                    self._client.stream_events(session, event_queue, should_stop=lambda: self._cancelled)
                 )
                 message_task = asyncio.create_task(
                     self._client.send_message(
@@ -548,33 +528,10 @@ class OpenCodeRunner(BaseRunner):
                         state.saw_result = True
                         yield ("result", self._make_result(state))
                     else:
-                        yield self._make_fallback_error(state)
-
-        except asyncio.CancelledError:
-            log.info("OpenCode runner was cancelled")
-            yield ("cancelled", "OpenCode was cancelled")
-        except Exception as e:
-            state.saw_error = True
-            log.exception(f"OpenCode runner exception: {type(e).__name__}: {e}")
-            if isinstance(e, asyncio.TimeoutError):
-                # aiohttp can raise a TimeoutError with an empty message.
-                # Surface the configured timeout to make this actionable.
-                http_timeout_s = float(os.getenv("OPENCODE_HTTP_TIMEOUT_S", "600"))
-                yield (
-                    "error",
-                    f"TimeoutError (HTTP timeout after {http_timeout_s:.0f}s; set OPENCODE_HTTP_TIMEOUT_S to increase)",
-                )
-            else:
-                message = str(e).strip()
-                if not message:
-                    message = type(e).__name__
-                yield ("error", message)
+                        event_type, message = self._make_fallback_error(state)
+                        raise RuntimeError(message)
         finally:
-            try:
-                await self._cleanup_tasks(sse_task, message_task)
-            except Exception:
-                # Cleanup is best-effort; never raise from finally.
-                pass
+            await self._cleanup_tasks(sse_task, message_task)
 
     def _make_fallback_error(self, state: RunState) -> Event:
         """Create an error event when OpenCode exits without proper result."""
@@ -600,7 +557,4 @@ class OpenCodeRunner(BaseRunner):
     async def wait_cancelled(self) -> None:
         """Wait for cancellation cleanup to complete."""
         if self._abort_task:
-            try:
-                await self._abort_task
-            except Exception:
-                pass
+            await self._abort_task

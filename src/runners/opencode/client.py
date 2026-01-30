@@ -115,33 +115,22 @@ class OpenCodeClient:
         answers: list[list[str]],
     ) -> bool:
         url = self._make_url(f"/question/{question.request_id}/reply")
-        try:
-            await self.request_json(session, "POST", url, json={"answers": answers})
-            log.info(f"Answered question {question.request_id}")
-            return True
-        except Exception as e:
-            log.error(f"Failed to answer question: {e}")
-            return False
+        await self.request_json(session, "POST", url, json={"answers": answers})
+        log.info(f"Answered question {question.request_id}")
+        return True
 
     async def reject_question(
         self, session: aiohttp.ClientSession, question: Question
     ) -> bool:
         url = self._make_url(f"/question/{question.request_id}/reject")
-        try:
-            await self.request_json(session, "POST", url)
-            return True
-        except Exception as e:
-            log.error(f"Failed to reject question: {e}")
-            return False
+        await self.request_json(session, "POST", url)
+        return True
 
     async def abort_session(
         self, session: aiohttp.ClientSession, session_id: str
     ) -> None:
         url = self._make_url(f"/session/{session_id}/abort")
-        try:
-            await self.request_json(session, "POST", url)
-        except Exception as e:
-            log.debug(f"Failed to abort session {session_id}: {e}")
+        await self.request_json(session, "POST", url)
 
     async def get_session_messages(
         self, session: aiohttp.ClientSession, session_id: str

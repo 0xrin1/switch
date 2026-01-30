@@ -5,6 +5,7 @@ Shared utilities for XMPP bridge components.
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -270,3 +271,53 @@ class BaseXMPPBot(ClientXMPP):
         msg = self.make_message(mto=to, mtype="chat")
         msg["chat_state"] = "composing"
         msg.send()
+
+    def _format_exception_for_user(self, exc: BaseException) -> str:
+        # Keep this terse: users need a signal, not a traceback.
+        msg = str(exc).strip()
+        if msg:
+            return f"Error: {type(exc).__name__}: {msg}"
+        return f"Error: {type(exc).__name__}"
+
+    async def guard(
+        self,
+        coro,
+        *,
+        recipient: str | None = None,
+        context: str | None = None,
+    ):
+        """Run a coroutine with a single error boundary.
+
+        - Lets internal code raise normally.
+        - Catches at the boundary, logs, and sends an error message to the
+          relevant recipient.
+        """
+
+        try:
+            return await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log = getattr(self, "log", logging.getLogger("xmpp"))
+            if context:
+                log.exception("Unhandled error (%s)", context)
+            else:
+                log.exception("Unhandled error")
+            try:
+                self.send_reply(self._format_exception_for_user(exc), recipient=recipient)
+            except Exception:
+                # Last-ditch: avoid masking the original exception.
+                pass
+            return None
+
+    def spawn_guarded(
+        self,
+        coro,
+        *,
+        recipient: str | None = None,
+        context: str | None = None,
+    ) -> asyncio.Task:
+        """Create a task that reports exceptions to the user."""
+
+        task = asyncio.create_task(self.guard(coro, recipient=recipient, context=context))
+        return task

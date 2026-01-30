@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import json
 import logging
 import os
@@ -97,15 +98,14 @@ class SessionBot(RalphMixin, BaseXMPPBot):
     # -------------------------------------------------------------------------
 
     async def on_start(self, event):
-        try:
-            self.send_presence()
-            await self.get_roster()
-            await self["xep_0280"].enable()  # type: ignore[attr-defined,union-attr]
-            self.log.info("Connected")
-            self.set_connected(True)
-        except Exception:
-            self.log.exception("Session start error")
-            self.set_connected(False)
+        await self.guard(self._on_start(event), context="session.on_start")
+
+    async def _on_start(self, event):
+        self.send_presence()
+        await self.get_roster()
+        await self["xep_0280"].enable()  # type: ignore[attr-defined,union-attr]
+        self.log.info("Connected")
+        self.set_connected(True)
 
     def on_disconnected(self, event):
         self.set_connected(False)
@@ -242,10 +242,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
         if self.runner and self.processing:
             cancelled_any = True
-            try:
-                self.runner.cancel()
-            except Exception:
-                pass
+            self.runner.cancel()
 
         if self._run_task and not self._run_task.done():
             cancelled_any = True
@@ -276,25 +273,21 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             except asyncio.QueueEmpty:
                 break
 
-        # Give the ack message (sent before hard_kill) a brief chance to flush.
+        # Best-effort goodbye from the session contact, before we unregister.
+        self.send_reply("Session closed. Goodbye!")
+
+        # Give any final messages a brief chance to flush.
         await asyncio.sleep(0.25)
 
         try:
-            if self.manager:
-                await self.manager.kill_session(self.session_name)
-            else:
-                # Fallback: local cleanup if manager is unavailable.
-                from src.helpers import delete_xmpp_account, kill_tmux_session
-
-                username = self.boundjid.user
-                delete_xmpp_account(username, self.ejabberd_ctl, self.xmpp_domain, self.log)
-                kill_tmux_session(self.session_name)
-                self.sessions.close(self.session_name)
+            manager = self.manager
+            if manager is None:
+                raise RuntimeError("Session manager unavailable")
+            await manager.kill_session(self.session_name, send_goodbye=False)
         finally:
-            try:
+            # If kill_session fails partway through, still tear down the XMPP connection.
+            with suppress(Exception):
                 self.disconnect()
-            except Exception:
-                pass
 
     def _split_message(self, text: str, max_len: int) -> list[str]:
         """Split text into chunks respecting paragraph boundaries."""
@@ -331,34 +324,25 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
     def _extract_switch_meta(self, msg) -> tuple[str | None, dict[str, str] | None, object | None]:
         """Extract Switch message meta extension (best-effort)."""
-        try:
-            for child in getattr(msg, "xml", []) or []:
-                if getattr(child, "tag", None) != f"{{{SWITCH_META_NS}}}meta":
-                    continue
-                attrs = dict(getattr(child, "attrib", {}) or {})
-                meta_type = attrs.get("type")
+        for child in getattr(msg, "xml", []) or []:
+            if getattr(child, "tag", None) != f"{{{SWITCH_META_NS}}}meta":
+                continue
+            attrs = dict(getattr(child, "attrib", {}) or {})
+            meta_type = attrs.get("type")
 
-                payload_obj: object | None = None
-                payload = child.find(f"{{{SWITCH_META_NS}}}payload")
-                if payload is not None and (payload.get("format") or "").lower() == "json":
-                    raw = (payload.text or "").strip()
-                    if raw:
-                        payload_obj = json.loads(raw)
+            payload_obj: object | None = None
+            payload = child.find(f"{{{SWITCH_META_NS}}}payload")
+            if payload is not None and (payload.get("format") or "").lower() == "json":
+                raw = (payload.text or "").strip()
+                if raw:
+                    payload_obj = json.loads(raw)
 
-                return meta_type, attrs, payload_obj
-        except Exception:
-            return None, None, None
+            return meta_type, attrs, payload_obj
+
         return None, None, None
 
     async def on_message(self, msg):
-        try:
-            await self._handle_session_message(msg)
-        except asyncio.CancelledError:
-            # Cancels are expected (e.g., /cancel, /kill).
-            return
-        except Exception:
-            self.log.exception("Session message error")
-            self.send_reply("Error handling message")
+        await self.guard(self._handle_session_message(msg), context="session.on_message")
 
     async def _handle_session_message(self, msg):
         if msg["type"] not in ("chat", "normal"):
@@ -379,17 +363,12 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         is_scheduled = sender == dispatcher_jid
 
         attachments: list[Attachment] = []
-        try:
-            urls = self._extract_attachment_urls(msg, body)
-            if urls:
-                attachments = await self.attachment_store.download_images(
-                    self.session_name, urls
-                )
-                if attachments:
-                    self._send_attachment_meta(attachments)
-                    body = self._strip_urls_from_body(body, urls)
-        except Exception:
-            attachments = []
+        urls = self._extract_attachment_urls(msg, body)
+        if urls:
+            attachments = await self.attachment_store.download_images(self.session_name, urls)
+            if attachments:
+                self._send_attachment_meta(attachments)
+                body = self._strip_urls_from_body(body, urls)
 
         if meta_type == "question-reply":
             request_id = (meta_attrs or {}).get("request_id")
@@ -528,32 +507,24 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self.log.info(f"Shell command: {cmd}")
         self.send_typing()
 
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                cwd=self.working_dir,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-            output = stdout.decode("utf-8", errors="replace").strip() or "(no output)"
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=self.working_dir,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        output = stdout.decode("utf-8", errors="replace").strip() or "(no output)"
 
-            display = (
-                output[:4000] + "\n... (truncated)" if len(output) > 4000 else output
-            )
-            self.send_reply(
-                f"$ {cmd}\n{display}",
-                meta_type="tool-result",
-                meta_tool="bash",
-            )
+        display = output[:4000] + "\n... (truncated)" if len(output) > 4000 else output
+        self.send_reply(
+            f"$ {cmd}\n{display}",
+            meta_type="tool-result",
+            meta_tool="bash",
+        )
 
-            context_msg = f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
-            await self.process_message(context_msg, trigger_response=False)
-
-        except asyncio.TimeoutError:
-            self.send_reply(f"$ {cmd}\n(timed out after 30s)")
-        except Exception as e:
-            self.send_reply(f"$ {cmd}\nError: {e}")
+        context_msg = f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
+        await self.process_message(context_msg, trigger_response=False)
 
     async def peek_output(self, num_lines: int = 30):
         """Show recent output without adding to context."""
@@ -562,19 +533,16 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             self.send_reply("No output captured yet.")
             return
 
-        try:
-            lines = self._read_tail(output_file, max(num_lines, 100))
-            if not lines:
-                self.send_reply("Output file empty.")
-                return
+        lines = self._read_tail(output_file, max(num_lines, 100))
+        if not lines:
+            self.send_reply("Output file empty.")
+            return
 
-            status = "RUNNING" if self.processing else "IDLE"
-            output = f"[{status}] Last {len(lines)} lines:\n" + "\n".join(lines)
-            if len(output) > 3500:
-                output = "... (truncated)\n" + output[-3500:]
-            self.send_reply(output)
-        except Exception as e:
-            self.send_reply(f"Error reading output: {e}")
+        status = "RUNNING" if self.processing else "IDLE"
+        output = f"[{status}] Last {len(lines)} lines:\n" + "\n".join(lines)
+        if len(output) > 3500:
+            output = "... (truncated)\n" + output[-3500:]
+        self.send_reply(output)
 
     def _read_tail(self, path: Path, num_lines: int) -> list[str]:
         """Read last N lines from file."""

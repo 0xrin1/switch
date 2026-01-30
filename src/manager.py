@@ -102,9 +102,9 @@ class SessionManager:
             log.error("Failed to create session")
             return
 
-    async def kill_session(self, name: str) -> bool:
+    async def kill_session(self, name: str, *, send_goodbye: bool = True) -> bool:
         """Kill a session and cleanup."""
-        return await lifecycle_kill_session(self, name)
+        return await lifecycle_kill_session(self, name, send_goodbye=send_goodbye)
 
     async def start_dispatchers(self):
         """Start all dispatcher bots."""

@@ -89,52 +89,42 @@ class DispatcherBot(BaseXMPPBot):
         self.connect()
 
     async def on_message(self, msg):
-        try:
-            if msg["type"] not in ("chat", "normal") or not msg["body"]:
-                return
+        await self.guard(self._handle_dispatcher_message(msg), recipient=self.xmpp_recipient, context="dispatcher.on_message")
 
-            sender = str(msg["from"].bare)
-            dispatcher_bare = str(self.boundjid.bare)
-            sender_user = sender.split("@")[0]
+    async def _handle_dispatcher_message(self, msg):
+        if msg["type"] not in ("chat", "normal") or not msg["body"]:
+            return
 
-            if not (
-                sender == self.xmpp_recipient
-                or sender == dispatcher_bare
-                or sender_user.startswith("switch-loopback-")
-            ):
-                return
+        sender = str(msg["from"].bare)
+        dispatcher_bare = str(self.boundjid.bare)
+        sender_user = sender.split("@")[0]
 
-            is_loopback = sender_user.startswith("switch-loopback-")
-            reply_to = sender if is_loopback else self.xmpp_recipient
+        if not (
+            sender == self.xmpp_recipient
+            or sender == dispatcher_bare
+            or sender_user.startswith("switch-loopback-")
+        ):
+            return
 
-            body = msg["body"].strip()
-            if body.startswith("@"):
-                body = "/" + body[1:]
+        is_loopback = sender_user.startswith("switch-loopback-")
+        reply_to = sender if is_loopback else self.xmpp_recipient
 
-            self.log.info(f"Dispatcher received: {body[:50]}...")
+        body = msg["body"].strip()
+        if body.startswith("@"):
+            body = "/" + body[1:]
 
-            if body.startswith("/"):
-                if is_loopback:
-                    self.send_reply(
-                        "Loopback only supports session creation.", recipient=reply_to
-                    )
-                    return
-                await self._dispatch_command(body)
-                return
+        self.log.info(f"Dispatcher received: {body[:50]}...")
 
-            await self.create_session(body)
+        if body.startswith("/"):
             if is_loopback:
-                self.send_reply(f"Dispatcher received: {body}", recipient=reply_to)
+                self.send_reply("Loopback only supports session creation.", recipient=reply_to)
+                return
+            await self._dispatch_command(body)
+            return
 
-        except Exception as exc:
-            # Be defensive: if a failure happens before self.log is ready,
-            # don't crash the exception handler too.
-            log = getattr(self, "log", logging.getLogger("dispatcher"))
-            log.exception("Dispatcher error")
-            try:
-                self.send_reply(f"Error: {exc}", recipient=self.xmpp_recipient)
-            except Exception:
-                log.exception("Failed to send dispatcher error reply")
+        await self.create_session(body)
+        if is_loopback:
+            self.send_reply(f"Dispatcher received: {body}", recipient=reply_to)
 
     async def _dispatch_command(self, body: str) -> None:
         """Dispatch command to handler."""
