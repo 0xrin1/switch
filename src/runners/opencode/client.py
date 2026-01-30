@@ -58,10 +58,9 @@ class OpenCodeClient:
                 raise RuntimeError(f"OpenCode HTTP {resp.status}: {detail}")
             if not text:
                 return None
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return text
+            # Bubble JSON decode errors to the caller so higher-level middleware
+            # can report them coherently.
+            return json.loads(text)
 
     async def check_health(self, session: aiohttp.ClientSession) -> None:
         url = self._make_url("/global/health")
@@ -290,10 +289,7 @@ class OpenCodeClient:
                     continue
 
                 payload = "\n".join(data_lines)
-                try:
-                    event = json.loads(payload)
-                except json.JSONDecodeError:
-                    continue
+                event = json.loads(payload)
                 if isinstance(event, dict):
                     await queue.put(event)
 
