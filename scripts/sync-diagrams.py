@@ -40,9 +40,13 @@ DIAGRAMS: dict[str, Diagram] = {
         name="system",
         mermaid_path=REPO_ROOT / "docs" / "diagrams" / "system.mermaid",
     ),
-    "system-detailed": Diagram(
-        name="system-detailed",
-        mermaid_path=REPO_ROOT / "docs" / "diagrams" / "system-detailed.mermaid",
+    "session-message-flow": Diagram(
+        name="session-message-flow",
+        mermaid_path=REPO_ROOT / "docs" / "diagrams" / "session-message-flow.mermaid",
+    ),
+    "opencode-runner": Diagram(
+        name="opencode-runner",
+        mermaid_path=REPO_ROOT / "docs" / "diagrams" / "opencode-runner.mermaid",
     ),
 }
 

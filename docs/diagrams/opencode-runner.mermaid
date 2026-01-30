@@ -1,0 +1,40 @@
+flowchart LR
+  %% OpenCodeRunner internals (HTTP + SSE)
+
+  SessionBot["SessionBot\n(src/bots/session/bot.py)"]
+  Runner["OpenCodeRunner\n(src/runners/opencode/runner.py)"]
+  Config["OpenCodeConfig\n(config.py)\nmodel/agent/reasoning\nquestion_callback"]
+
+  Client["OpenCodeClient\n(client.py)\nHTTP requests"]
+  Transport["OpenCodeTransport\n(transport.py)\nSSE task + POST task\n[X] cancel -> /abort"]
+  Processor["OpenCodeEventProcessor\n(processor.py)\nparse tool/text/question"]
+  Pipe["iter_queue_pipeline()\n(pipeline.py)\nsession gating + idle timeout"]
+
+  Server["External OpenCode server\nHTTP + SSE"]
+
+  %% Wiring
+  SessionBot -->|create_runner(engine=opencode)| Runner
+  Runner --> Config
+  Runner --> Client
+  Runner --> Transport
+  Runner --> Processor
+  Runner --> Pipe
+
+  Client <==>|/global/event SSE| Server
+  Client -->|POST /session| Server
+  Client -->|POST /session/{id}/message| Server
+  Transport -.->|POST /session/{id}/abort| Server
+
+  %% Questions loop
+  Q["question asked\n(event)"]
+  A["answer_question()\nquestion_callback"]
+
+  Pipe --> Q --> SessionBot
+  SessionBot --> A --> Client
+  Client -->|POST /question/{rid}/reply| Server
+
+  %% Events back
+  Pipe -->|events: tool/text/result| Runner --> SessionBot
+
+  classDef cancel stroke:#b00020,stroke-width:2px,fill:#fff5f6,color:#111;
+  class Transport cancel;
