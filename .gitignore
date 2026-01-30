@@ -8,6 +8,13 @@ sessions.db
 tmp/
 uploads/*
 !uploads/.gitkeep
+
+# Legacy/local artifacts (avoid confusing shadow state under src/)
+src/sessions.db
+src/output/
+
+# Local scratch/vendor dirs (not part of Switch runtime)
+Sources/
 __pycache__/
 *.pyc
 *.pyo

@@ -5,14 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/user/switch
-ExecStart=/home/user/switch/scripts/run.sh
+WorkingDirectory=%h/switch
+ExecStart=%h/switch/scripts/run.sh
 Restart=on-failure
 RestartSec=10
 
 # Environment
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/share/fnm/node-versions/v22.12.0/installation/bin:/home/user/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target

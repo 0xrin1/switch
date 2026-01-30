@@ -257,11 +257,11 @@ switch/
 ├── src/                # Main application
 │   ├── bridge.py       # Entry point
 │   └── utils.py        # XMPP utilities
-├── scripts/            # Utility scripts
-│   ├── run.sh          # Run directly (not via systemd)
-│   ├── sessions.sh     # List/kill sessions
-│   ├── spawn-session.py
-│   └── close-session.py
+ ├── scripts/            # Utility scripts
+ │   ├── run.sh          # Run directly (not via systemd)
+ │   ├── sessions.sh     # List/kill sessions
+ │   ├── spawn-session.py
+ │   └── loopback.py
 ├── docs/               # Documentation
 ├── pyproject.toml      # Dependencies
 ├── sessions.db         # SQLite database (created on first run)

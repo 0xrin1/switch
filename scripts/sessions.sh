@@ -40,6 +40,16 @@ case "${1:-list}" in
             exit 1
         fi
         NAME="$2"
+
+        # Prefer in-bridge kill via dispatcher so the in-memory bot winds down
+        # and doesn't immediately reconnect.
+        DISPATCHER=${SWITCH_DEFAULT_DISPATCHER:-oc-gpt}
+        if python3 scripts/spawn-session.py --dispatcher "$DISPATCHER" "/kill $NAME" >/dev/null 2>&1; then
+            echo "Requested kill via dispatcher ($DISPATCHER): $NAME"
+            exit 0
+        fi
+
+        echo "Dispatcher kill failed; falling back to offline cleanup."
         require_sqlite
 
         JID=$(sqlite3 "$DB" "SELECT xmpp_jid FROM sessions WHERE name='$NAME'" 2>/dev/null)
@@ -54,9 +64,10 @@ case "${1:-list}" in
         source .env 2>/dev/null
         $EJABBERD_CTL unregister "$USERNAME" "$XMPP_DOMAIN" 2>/dev/null
 
-        sqlite3 "$DB" "DELETE FROM sessions WHERE name='$NAME'"
+        # Archive semantics: don't delete session history.
+        sqlite3 "$DB" "UPDATE sessions SET status='closed' WHERE name='$NAME'"
 
-        echo "Killed session: $NAME"
+        echo "Closed session: $NAME"
         ;;
 
     clean)

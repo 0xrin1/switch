@@ -11,7 +11,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from src.utils import run_ejabberdctl as _run_ejabberdctl
+from src.utils import run_ejabberdctl
 
 HISTORY_PATH = Path.home() / ".claude" / "history.jsonl"
 ACTIVITY_LOG_PATH = Path.home() / ".claude" / "activity.jsonl"
@@ -65,11 +65,6 @@ def log_activity(message: str, session: str | None = None, source: str = "xmpp")
             f.write(json.dumps(entry) + "\n")
     except Exception:
         pass
-
-
-def run_ejabberdctl(ejabberd_ctl: str, *args) -> tuple[bool, str]:
-    """Run an ejabberdctl command via SSH or locally."""
-    return _run_ejabberdctl(ejabberd_ctl, *args)
 
 
 def create_xmpp_account(

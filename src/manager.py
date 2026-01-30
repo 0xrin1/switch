@@ -13,11 +13,10 @@ from src.db import SessionRepository
 from src.helpers import (
     add_roster_subscription,
     create_tmux_session,
-    delete_xmpp_account,
-    kill_tmux_session,
     register_unique_account,
     slugify,
 )
+from src.lifecycle.sessions import kill_session as lifecycle_kill_session
 
 log = logging.getLogger("manager")
 
@@ -124,30 +123,7 @@ class SessionManager:
 
     async def kill_session(self, name: str) -> bool:
         """Kill a session and cleanup."""
-        session = self.sessions.get(name)
-        if not session or session.status == "closed":
-            return session is not None
-
-        # If the bot is running, cancel in-flight work and prevent reconnects
-        # before we delete the account.
-        bot = self.session_bots.get(name)
-        if bot:
-            try:
-                bot.shutting_down = True
-                bot.cancel_operations(notify=False)
-                bot.disconnect()
-            except Exception:
-                pass
-
-        username = session.xmpp_jid.split("@")[0]
-        delete_xmpp_account(username, self.ejabberd_ctl, self.xmpp_domain, log)
-        kill_tmux_session(name)
-        self.sessions.close(name)
-        self.session_bots.pop(name, None)
-
-        # Notify directory clients that session lists changed.
-        self.notify_directory_sessions_changed()
-        return True
+        return await lifecycle_kill_session(self, name)
 
     async def start_dispatchers(self):
         """Start all dispatcher bots."""

@@ -8,13 +8,13 @@ version: 2.0.0
 
 ## The Right Tool
 
-Use the close-session.py script in ~/switch/scripts:
+Use `sessions.sh kill` in ~/switch/scripts:
 
 ```bash
-cd ~/switch && python scripts/close-session.py <session-name> [optional-message]
+~/switch/scripts/sessions.sh kill <session-name>
 ```
 
-This script properly:
+This properly:
 - Sends a goodbye message via XMPP to the user
 - Deletes the XMPP account from ejabberd
 - Kills the tmux session
@@ -36,20 +36,18 @@ This shows:
 
 ### Close a specific stale session
 ```bash
-cd ~/switch && python scripts/close-session.py session-name-here
+~/switch/scripts/sessions.sh kill session-name-here
 ```
 
 ### Close with custom message
-```bash
-cd ~/switch && python scripts/close-session.py old-session "Cleaning up old sessions. Start a new chat!"
-```
+Not currently supported via `sessions.sh` (it uses a standard goodbye message).
 
 ### Clean up multiple stale sessions
 List first, then close each:
 ```bash
 ~/switch/scripts/sessions.sh list
-cd ~/switch && python scripts/close-session.py stale-session-1
-cd ~/switch && python scripts/close-session.py stale-session-2
+~/switch/scripts/sessions.sh kill stale-session-1
+~/switch/scripts/sessions.sh kill stale-session-2
 ```
 
 ## CRITICAL: Never Close Your Own Session
@@ -63,9 +61,7 @@ The user can identify stale sessions by:
 
 ## Alternative: sessions.sh kill
 
-There's also `~/switch/scripts/sessions.sh kill <name>` but it:
-- Does NOT send XMPP goodbye message
-- DELETES the session from DB (vs marking closed)
-- Less graceful
+`~/switch/scripts/sessions.sh kill <name>` is the preferred tool.
 
-Prefer close-session.py for proper cleanup.
+It attempts to request the kill via the in-bridge dispatcher first so the in-memory
+bot can wind down cleanly; if that fails it falls back to offline cleanup.

@@ -76,8 +76,8 @@ Clean up stale sessions:
 # List sessions first
 ~/switch/scripts/sessions.sh list
 
-# Close a specific one (sends goodbye message)
-cd ~/switch && python scripts/close-session.py <session-name>
+# Close a specific one (archive-with-goodbye, unregister XMPP, kill tmux)
+~/switch/scripts/sessions.sh kill <session-name>
 ```
 
 Never close your own session.
@@ -121,7 +121,7 @@ cat ~/switch/skills/<skill-name>.md
 | Skills/runbooks | `~/switch/skills/` |
 | List sessions | `~/switch/scripts/sessions.sh list` |
 | Spawn session | `cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/spawn-session.py --dispatcher oc-gpt "message"` |
-| Close session | `cd ~/switch && python scripts/close-session.py <name>` |
+| Close session | `~/switch/scripts/sessions.sh kill <name>` |
 | Real-time logs | `journalctl --user -u switch -f` |
 
 ## If You're Working on Switch Itself
