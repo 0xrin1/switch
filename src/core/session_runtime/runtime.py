@@ -21,38 +21,23 @@ from src.attachments import Attachment
 from src.runners import Question, Runner
 from src.runners.opencode.config import OpenCodeConfig
 
+from src.core.session_runtime.api import (
+    EventSinkPort,
+    OutboundMessage,
+    ProcessingChanged,
+    RalphConfig,
+    RalphStatus,
+    SessionEvent,
+)
 from src.core.session_runtime.ports import (
     AttachmentPromptPort,
     HistoryPort,
     MessageStorePort,
     RalphLoopStorePort,
-    ReplyPort,
     RunnerFactoryPort,
     SessionState,
     SessionStorePort,
-    TypingPort,
 )
-
-
-@dataclass(frozen=True)
-class RalphConfig:
-    prompt: str
-    max_iterations: int = 0
-    completion_promise: str | None = None
-    wait_seconds: float = 2.0
-    force_engine: str = "claude"
-
-
-@dataclass
-class RalphStatus:
-    status: str  # queued|running|stopping|completed|cancelled|error|max_iterations|finished
-    current_iteration: int = 0
-    max_iterations: int = 0
-    wait_seconds: float = 0.0
-    completion_promise: str | None = None
-    total_cost: float = 0.0
-    loop_id: int | None = None
-    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,28 +62,24 @@ class SessionRuntime:
         output_dir: Path,
         sessions: SessionStorePort,
         messages: MessageStorePort,
-        reply: ReplyPort,
-        typing: TypingPort,
+        events: EventSinkPort,
         runner_factory: RunnerFactoryPort,
         history: HistoryPort,
         prompt: AttachmentPromptPort,
         ralph_loops: RalphLoopStorePort | None = None,
         infer_meta_tool_from_summary: Callable[[str], str | None],
-        on_processing_changed: Callable[[bool], None] | None = None,
     ):
         self.session_name = session_name
         self.working_dir = working_dir
         self.output_dir = output_dir
         self._sessions = sessions
         self._messages = messages
-        self._reply = reply
-        self._typing = typing
+        self._events = events
         self._runner_factory = runner_factory
         self._history = history
         self._prompt = prompt
         self._ralph_loops = ralph_loops
         self._infer_meta_tool_from_summary = infer_meta_tool_from_summary
-        self._on_processing_changed = on_processing_changed
 
         self._generation = 0
         self._queue: asyncio.Queue[_WorkItem] = asyncio.Queue()
@@ -197,7 +178,7 @@ class SessionRuntime:
                 fut.cancel()
 
         if notify and cancelled_any:
-            self._reply.send_reply("Cancelling current work...")
+            self._emit_nowait(OutboundMessage("Cancelling current work..."))
 
         return cancelled_any
 
@@ -275,15 +256,18 @@ class SessionRuntime:
 
     def _set_processing(self, active: bool) -> None:
         self.processing = active
-        if self._on_processing_changed:
-            try:
-                self._on_processing_changed(active)
-            except Exception:
-                pass
-        if active:
-            self._typing.start()
-        else:
-            self._typing.stop()
+        self._emit_nowait(ProcessingChanged(active=active))
+
+    def _emit_nowait(self, event: SessionEvent) -> None:
+        """Best-effort emit from sync context."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._events.emit(event))
+
+    async def _emit(self, event: SessionEvent) -> None:
+        await self._events.emit(event)
 
     async def _loop(self) -> None:
         try:
@@ -318,7 +302,7 @@ class SessionRuntime:
 
         session = self._sessions.get(self.session_name)
         if not session:
-            self._reply.send_reply("Session not found in database.")
+            await self._emit(OutboundMessage("Session not found in database."))
             return
 
         self._sessions.update_last_active(self.session_name)
@@ -357,7 +341,7 @@ class SessionRuntime:
 
         session = self._sessions.get(self.session_name)
         if not session:
-            self._reply.send_reply("Session not found in database.")
+            await self._emit(OutboundMessage("Session not found in database."))
             self._ralph_status.status = "error"
             self._ralph_status.error = "Session not found"
             return
@@ -379,10 +363,12 @@ class SessionRuntime:
         promise_str = f'"{cfg.completion_promise}"' if cfg.completion_promise else "none"
         wait_minutes = float(cfg.wait_seconds or 0.0) / 60.0
         max_str = str(cfg.max_iterations) if (cfg.max_iterations or 0) > 0 else "unlimited"
-        self._reply.send_reply(
-            "Ralph loop started\n"
-            f"Max: {max_str} | Wait: {wait_minutes:.2f} min | Done when: {promise_str}\n"
-            "Use /ralph-cancel to stop after current iteration (or /cancel to abort immediately)"
+        await self._emit(
+            OutboundMessage(
+                "Ralph loop started\n"
+                f"Max: {max_str} | Wait: {wait_minutes:.2f} min | Done when: {promise_str}\n"
+                "Use /ralph-cancel to stop after current iteration (or /cancel to abort immediately)"
+            )
         )
 
         try:
@@ -394,9 +380,11 @@ class SessionRuntime:
 
                 if self._ralph_stop_requested:
                     self._ralph_status.status = "cancelled"
-                    self._reply.send_reply(
-                        f"Ralph cancelled at iteration {self._ralph_status.current_iteration}\n"
-                        f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                    await self._emit(
+                        OutboundMessage(
+                            f"Ralph cancelled at iteration {self._ralph_status.current_iteration}\n"
+                            f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                        )
                     )
                     self._ralph_save("cancelled")
                     return
@@ -404,9 +392,11 @@ class SessionRuntime:
                 if cfg.max_iterations and cfg.max_iterations > 0:
                     if self._ralph_status.current_iteration >= cfg.max_iterations:
                         self._ralph_status.status = "max_iterations"
-                        self._reply.send_reply(
-                            f"Ralph complete: hit max ({cfg.max_iterations})\n"
-                            f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                        await self._emit(
+                            OutboundMessage(
+                                f"Ralph complete: hit max ({cfg.max_iterations})\n"
+                                f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                            )
                         )
                         self._ralph_save("max_iterations")
                         return
@@ -418,9 +408,11 @@ class SessionRuntime:
                 if result.error:
                     self._ralph_status.status = "error"
                     self._ralph_status.error = result.error
-                    self._reply.send_reply(
-                        f"Ralph error at iteration {self._ralph_status.current_iteration}: {result.error}\n"
-                        f"Stopping. Total cost: ${self._ralph_status.total_cost:.3f}"
+                    await self._emit(
+                        OutboundMessage(
+                            f"Ralph error at iteration {self._ralph_status.current_iteration}: {result.error}\n"
+                            f"Stopping. Total cost: ${self._ralph_status.total_cost:.3f}"
+                        )
                     )
                     self._ralph_save("error")
                     return
@@ -432,16 +424,20 @@ class SessionRuntime:
                     if cfg.max_iterations and cfg.max_iterations > 0
                     else str(self._ralph_status.current_iteration)
                 )
-                self._reply.send_reply(
-                    f"[Ralph {iter_str} | {result.tool_count}tools ${result.cost:.3f}]\n\n{preview}"
+                await self._emit(
+                    OutboundMessage(
+                        f"[Ralph {iter_str} | {result.tool_count}tools ${result.cost:.3f}]\n\n{preview}"
+                    )
                 )
 
                 if cfg.completion_promise and f"<promise>{cfg.completion_promise}</promise>" in result.text:
                     self._ralph_status.status = "completed"
-                    self._reply.send_reply(
-                        f"Ralph COMPLETE at iteration {self._ralph_status.current_iteration}\n"
-                        f"Detected: <promise>{cfg.completion_promise}</promise>\n"
-                        f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                    await self._emit(
+                        OutboundMessage(
+                            f"Ralph COMPLETE at iteration {self._ralph_status.current_iteration}\n"
+                            f"Detected: <promise>{cfg.completion_promise}</promise>\n"
+                            f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                        )
                     )
                     self._ralph_save("completed")
                     return
@@ -526,7 +522,7 @@ class SessionRuntime:
         if engine == "opencode":
             await self._run_opencode(session, prompt)
             return
-        self._reply.send_reply(f"Unknown engine '{engine}'.")
+        await self._emit(OutboundMessage(f"Unknown engine '{engine}'."))
 
     async def _run_claude(self, session: SessionState, prompt: str) -> None:
         self.runner = self._runner_factory.create(
@@ -552,20 +548,19 @@ class SessionRuntime:
                 tool_summaries.append(content)
                 if len(tool_summaries) - last_progress_at >= 8:
                     last_progress_at = len(tool_summaries)
-                    self._reply.send_reply(
-                        f"... {' '.join(tool_summaries[-3:])}",
-                        meta_type="tool",
-                        meta_tool=self._infer_meta_tool_from_summary(content),
+                    await self._emit(
+                        OutboundMessage(
+                            f"... {' '.join(tool_summaries[-3:])}",
+                            meta_type="tool",
+                            meta_tool=self._infer_meta_tool_from_summary(content),
+                        )
                     )
-                    self._typing.maybe_send(min_interval_s=5.0)
             elif event_type == "result":
-                self._send_result(tool_summaries, response_parts, content, engine="claude")
+                await self._send_result(tool_summaries, response_parts, content, engine="claude")
             elif event_type == "error":
-                self._typing.stop()
-                self._reply.send_reply(f"Error: {content}")
+                await self._emit(OutboundMessage(f"Error: {content}"))
             elif event_type == "cancelled":
-                self._typing.stop()
-                self._reply.send_reply("Cancelled.")
+                await self._emit(OutboundMessage("Cancelled."))
 
     async def _run_opencode(self, session: SessionState, prompt: str) -> None:
         question_callback = self._create_question_callback()
@@ -601,33 +596,33 @@ class SessionRuntime:
                 is_bash = content.startswith("[tool:bash")
                 if is_bash or len(tool_summaries) == 1:
                     last_progress_at = len(tool_summaries)
-                    self._reply.send_reply(
-                        f"... {content}",
-                        meta_type="tool",
-                        meta_tool=self._infer_meta_tool_from_summary(content),
+                    await self._emit(
+                        OutboundMessage(
+                            f"... {content}",
+                            meta_type="tool",
+                            meta_tool=self._infer_meta_tool_from_summary(content),
+                        )
                     )
-                    self._typing.maybe_send(min_interval_s=5.0)
                 elif len(tool_summaries) - last_progress_at >= 8:
                     last_progress_at = len(tool_summaries)
-                    self._reply.send_reply(
-                        f"... {' '.join(tool_summaries[-3:])}",
-                        meta_type="tool",
-                        meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
+                    await self._emit(
+                        OutboundMessage(
+                            f"... {' '.join(tool_summaries[-3:])}",
+                            meta_type="tool",
+                            meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
+                        )
                     )
-                    self._typing.maybe_send(min_interval_s=5.0)
             elif event_type == "question" and isinstance(content, Question):
                 # The runner handles question flow via the callback.
                 pass
             elif event_type == "result":
-                self._send_result(tool_summaries, response_parts, content, engine="opencode")
+                await self._send_result(tool_summaries, response_parts, content, engine="opencode")
             elif event_type == "error":
-                self._typing.stop()
-                self._reply.send_reply(f"Error: {content}")
+                await self._emit(OutboundMessage(f"Error: {content}"))
             elif event_type == "cancelled":
-                self._typing.stop()
-                self._reply.send_reply("Cancelled.")
+                await self._emit(OutboundMessage("Cancelled."))
 
-    def _send_result(
+    async def _send_result(
         self,
         tool_summaries: list[str],
         response_parts: list[str],
@@ -635,8 +630,6 @@ class SessionRuntime:
         *,
         engine: str,
     ) -> None:
-        self._typing.stop()
-
         parts: list[str] = []
         if tool_summaries:
             tools = " ".join(tool_summaries[:5])
@@ -652,7 +645,13 @@ class SessionRuntime:
             meta_type = "run-stats"
             meta_attrs = {str(k): str(v) for k, v in stats.items() if v is not None}
 
-        self._reply.send_reply("\n\n".join([p for p in parts if p]), meta_type=meta_type, meta_attrs=meta_attrs)
+        await self._emit(
+            OutboundMessage(
+                "\n\n".join([p for p in parts if p]),
+                meta_type=meta_type,
+                meta_attrs=meta_attrs,
+            )
+        )
         self._messages.add(
             self.session_name,
             "assistant",
@@ -663,22 +662,24 @@ class SessionRuntime:
     def _create_question_callback(self) -> Callable[[Question], Awaitable[list[list[str]]]]:
         async def question_callback(question: Question) -> list[list[str]]:
             question_text = self._format_question(question)
-            self._reply.send_reply(
-                question_text,
-                meta_type="question",
-                meta_tool="question",
-                meta_attrs={
-                    "version": "1",
-                    "engine": "opencode",
-                    "request_id": question.request_id,
-                    "question_count": str(len(question.questions or [])),
-                },
-                meta_payload={
-                    "version": 1,
-                    "engine": "opencode",
-                    "request_id": question.request_id,
-                    "questions": question.questions,
-                },
+            await self._emit(
+                OutboundMessage(
+                    question_text,
+                    meta_type="question",
+                    meta_tool="question",
+                    meta_attrs={
+                        "version": "1",
+                        "engine": "opencode",
+                        "request_id": question.request_id,
+                        "question_count": str(len(question.questions or [])),
+                    },
+                    meta_payload={
+                        "version": 1,
+                        "engine": "opencode",
+                        "request_id": question.request_id,
+                        "questions": question.questions,
+                    },
+                )
             )
 
             fut: asyncio.Future = asyncio.get_event_loop().create_future()
@@ -687,7 +688,7 @@ class SessionRuntime:
                 answer = await asyncio.wait_for(fut, timeout=300)
                 return self._parse_question_answer(question, answer)
             except asyncio.TimeoutError:
-                self._reply.send_reply("[Question timed out - proceeding without answer]")
+                await self._emit(OutboundMessage("[Question timed out - proceeding without answer]"))
                 raise
             finally:
                 self._pending_question_answers.pop(question.request_id, None)

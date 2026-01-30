@@ -16,6 +16,7 @@ flowchart TB
     SessionBot["SessionBot (XMPP adapter)\n(src/bots/session/bot.py)"]
     Inbound["Inbound parse\n(inbound.py)"]
     Typing["Typing keepalive\n(typing.py)"]
+    Sink["XmppEventSink\n(implements EventSinkPort)\n(in SessionBot)"]
     Runtime["[Q] SessionRuntime\n(queue + cancel + run)\n(src/core/session_runtime/runtime.py)\n+ Ralph mode"]
     Cancel["[X] cancel_operations\n(drop queued + cancel in-flight)"]
   end
@@ -61,9 +62,9 @@ flowchart TB
   Claude -->|events: tool/text/result| Runtime
   OpenCode -->|events: tool/text/question/result| Runtime
 
-  %% Back to user
-  Runtime -->|replies + meta| SessionBot
-  SessionBot -->|XMPP send| XMPP
+  %% Back to user (events)
+  Runtime -->|emit events| Sink
+  Sink -->|send XMPP| XMPP
 
   %% Cancellation
   SessionBot -.-> Cancel

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 
 from src.engines import normalize_engine
-from src.core.session_runtime.runtime import RalphConfig
+from src.core.session_runtime.api import RalphConfig
 from src.ralph import parse_ralph_command
 
 if TYPE_CHECKING:
@@ -179,7 +179,7 @@ class CommandHandler:
     @command("/ralph-cancel", "/ralph-stop")
     async def ralph_cancel(self, _body: str) -> bool:
         """Cancel Ralph loop."""
-        if self.bot._runtime.request_ralph_stop():
+        if self.bot.session.request_ralph_stop():
             self.bot.send_reply("Ralph loop will stop after current iteration...")
             return True
 
@@ -189,7 +189,7 @@ class CommandHandler:
     @command("/ralph-status")
     async def ralph_status(self, _body: str) -> bool:
         """Show Ralph loop status."""
-        live = self.bot._runtime.get_ralph_status()
+        live = self.bot.session.get_ralph_status()
         if live and live.status in {"queued", "running", "stopping"}:
             max_str = str(live.max_iterations) if live.max_iterations > 0 else "unlimited"
             wait_minutes = float(live.wait_seconds or 0.0) / 60.0
@@ -234,11 +234,11 @@ class CommandHandler:
             )
             return True
 
-        if self.bot.processing or self.bot._runtime.pending_count() > 0:
+        if self.bot.processing or self.bot.session.pending_count() > 0:
             self.bot.send_reply("Already running or queued. Use /ralph-cancel (or /cancel) first.")
             return True
 
-        await self.bot._runtime.start_ralph(
+        await self.bot.session.start_ralph(
             RalphConfig(
                 prompt=ralph_args["prompt"],
                 max_iterations=int(ralph_args["max_iterations"] or 0),

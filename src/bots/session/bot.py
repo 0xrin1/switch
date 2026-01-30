@@ -10,12 +10,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from src.core.session_runtime import SessionRuntime
+from src.core.session_runtime.api import (
+    EventSinkPort,
+    OutboundMessage,
+    ProcessingChanged,
+    SessionEvent,
+    SessionPort,
+)
 from src.core.session_runtime.ports import (
     AttachmentPromptPort,
     HistoryPort,
     MessageStorePort,
     RalphLoopStorePort,
-    ReplyPort,
     RunnerFactoryPort,
     SessionState,
     SessionStorePort,
@@ -85,6 +91,8 @@ class SessionBot(BaseXMPPBot):
         )
 
         self._runtime = self._build_runtime()
+        # Public session interface for commands/other adapters.
+        self.session: SessionPort = self._runtime
         self.attachment_store = AttachmentStore()
         self.commands = CommandHandler(self)
 
@@ -96,26 +104,31 @@ class SessionBot(BaseXMPPBot):
     # Runtime wiring
     # -------------------------------------------------------------------------
 
-    class _ReplyAdapter(ReplyPort):
+    class _EventSinkAdapter(EventSinkPort):
         def __init__(self, bot: "SessionBot"):
             self._bot = bot
 
-        def send_reply(
-            self,
-            text: str,
-            *,
-            meta_type: str | None = None,
-            meta_tool: str | None = None,
-            meta_attrs: dict[str, str] | None = None,
-            meta_payload: object | None = None,
-        ) -> None:
-            self._bot.send_reply(
-                text,
-                meta_type=meta_type,
-                meta_tool=meta_tool,
-                meta_attrs=meta_attrs,
-                meta_payload=meta_payload,
-            )
+        async def emit(self, event: SessionEvent) -> None:
+            if isinstance(event, ProcessingChanged):
+                self._bot.processing = event.active
+                if event.active:
+                    self._bot._typing.start()
+                else:
+                    self._bot._typing.stop()
+                return
+
+            if isinstance(event, OutboundMessage):
+                self._bot.send_reply(
+                    event.text,
+                    meta_type=event.meta_type,
+                    meta_tool=event.meta_tool,
+                    meta_attrs=event.meta_attrs,
+                    meta_payload=event.meta_payload,
+                )
+                # Tool/progress messages often clear typing indicators.
+                if event.meta_type == "tool":
+                    self._bot._typing.maybe_send(min_interval_s=5.0)
+                return
 
     class _SessionsAdapter(SessionStorePort):
         def __init__(self, repo: SessionRepository):
@@ -221,14 +234,12 @@ class SessionBot(BaseXMPPBot):
             output_dir=self.output_dir,
             sessions=self._SessionsAdapter(self.sessions),
             messages=self._MessagesAdapter(self.messages),
-            reply=self._ReplyAdapter(self),
-            typing=self._typing,
+            events=self._EventSinkAdapter(self),
             runner_factory=self._RunnerFactoryAdapter(),
             history=self._HistoryAdapter(),
             prompt=self._PromptAdapter(),
             ralph_loops=self._RalphLoopsAdapter(self.ralph_loops),
             infer_meta_tool_from_summary=self._infer_meta_tool_from_summary,
-            on_processing_changed=lambda active: setattr(self, "processing", active),
         )
 
     # -------------------------------------------------------------------------

@@ -69,6 +69,7 @@ flowchart TB
     SessionBot["SessionBot (XMPP adapter)\n(src/bots/session/bot.py)"]
     Inbound["Inbound parse\n(inbound.py)"]
     Typing["Typing keepalive\n(typing.py)"]
+    Sink["XmppEventSink\n(implements EventSinkPort)\n(in SessionBot)"]
     Runtime["[Q] SessionRuntime\n(queue + cancel + run)\n(src/core/session_runtime/runtime.py)\n+ Ralph mode"]
     Cancel["[X] cancel_operations\n(drop queued + cancel in-flight)"]
   end
@@ -114,9 +115,9 @@ flowchart TB
   Claude -->|events: tool/text/result| Runtime
   OpenCode -->|events: tool/text/question/result| Runtime
 
-  %% Back to user
-  Runtime -->|replies + meta| SessionBot
-  SessionBot -->|XMPP send| XMPP
+  %% Back to user (events)
+  Runtime -->|emit events| Sink
+  Sink -->|send XMPP| XMPP
 
   %% Cancellation
   SessionBot -.-> Cancel
@@ -135,6 +136,7 @@ flowchart TB
   %% OpenCodeRunner internals (HTTP + SSE)
 
   SessionBot["SessionBot (XMPP adapter)\n(src/bots/session/bot.py)"]
+  Sink["XmppEventSink\n(EventSinkPort)\n(in SessionBot)"]
   Runtime["SessionRuntime\n(src/core/session_runtime/runtime.py)"]
   Runner["OpenCodeRunner\n(src/runners/opencode/runner.py)"]
   Config["OpenCodeConfig\n(config.py)\nmodel/agent/reasoning\nquestion_callback"]
@@ -165,7 +167,8 @@ flowchart TB
   A["ask user + await reply\n(question_callback)"]
 
   Pipe --> Q --> Runtime
-  Runtime -->|question meta| SessionBot
+  Runtime -->|emit question meta| Sink
+  Sink -->|send XMPP| SessionBot
   SessionBot -->|user reply| Runtime
   Runtime --> A --> Client
   Client -->|POST /question/<rid>/reply| Server
@@ -206,6 +209,9 @@ single-session runtime (SessionRuntime) that owns queueing, cancellation, and
 runner orchestration.
 
 Ralph also runs inside SessionRuntime (no separate runner loop).
+
+SessionRuntime emits outbound events (messages + processing state) to an
+EventSink implemented by the XMPP adapter, instead of writing to XMPP directly.
 
 ### Orchestrator Contacts
 

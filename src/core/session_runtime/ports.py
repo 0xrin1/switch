@@ -40,26 +40,6 @@ class MessageStorePort(Protocol):
     def add(self, session_name: str, role: str, content: str, engine: str) -> None: ...
 
 
-class ReplyPort(Protocol):
-    def send_reply(
-        self,
-        text: str,
-        *,
-        meta_type: str | None = None,
-        meta_tool: str | None = None,
-        meta_attrs: dict[str, str] | None = None,
-        meta_payload: object | None = None,
-    ) -> None: ...
-
-
-class TypingPort(Protocol):
-    def start(self) -> None: ...
-
-    def stop(self) -> None: ...
-
-    def maybe_send(self, *, min_interval_s: float = 5.0) -> None: ...
-
-
 class RunnerFactoryPort(Protocol):
     def create(
         self,
