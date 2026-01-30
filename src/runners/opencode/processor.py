@@ -9,18 +9,20 @@ This module focuses on:
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Callable
 
 from src.runners.base import RunState
 from src.runners.opencode.events import coerce_event
 from src.runners.opencode.models import Event, OpenCodeResult, Question
+from src.runners.tool_logging import (
+    format_tool_input_preview,
+    should_log_tool_input,
+    tool_input_max_len,
+)
 
 
 class OpenCodeEventProcessor:
-    _REDACT_KEYS = ("key", "token", "secret", "password", "auth", "cookie")
-
     def __init__(
         self,
         *,
@@ -66,44 +68,6 @@ class OpenCodeEventProcessor:
             state.message_roles[message_id] = role
         return None
 
-    def _redact_tool_input(self, obj: object) -> object:
-        if isinstance(obj, dict):
-            out: dict[object, object] = {}
-            for k, v in obj.items():
-                ks = str(k).lower()
-                if any(rk in ks for rk in self._REDACT_KEYS):
-                    out[k] = "[REDACTED]"
-                else:
-                    out[k] = self._redact_tool_input(v)
-            return out
-        if isinstance(obj, list):
-            return [self._redact_tool_input(x) for x in obj]
-        return obj
-
-    def _format_tool_input(self, tool: str, raw_input: object) -> str | None:
-        if raw_input is None:
-            return None
-
-        if tool == "bash" and isinstance(raw_input, dict):
-            cmd = raw_input.get("command")
-            if isinstance(cmd, str) and cmd.strip():
-                return cmd.strip()
-
-        if tool in {"read", "write", "edit"} and isinstance(raw_input, dict):
-            fp = raw_input.get("filePath") or raw_input.get("file_path")
-            if isinstance(fp, str) and fp:
-                return fp
-
-        if tool == "grep" and isinstance(raw_input, dict):
-            pat = raw_input.get("pattern")
-            inc = raw_input.get("include")
-            if isinstance(pat, str) and pat:
-                suffix = f" include={inc!r}" if isinstance(inc, str) and inc else ""
-                return f"pattern={pat!r}" + suffix
-
-        redacted = self._redact_tool_input(raw_input)
-        return json.dumps(redacted, ensure_ascii=True, sort_keys=True, default=str)
-
     def _handle_tool_use(self, event: dict, state: RunState) -> Event | None:
         part = event.get("part", {})
         if not isinstance(part, dict):
@@ -118,16 +82,16 @@ class OpenCodeEventProcessor:
         title = tool_state.get("title") if isinstance(tool_state, dict) else None
         desc = f"[tool:{tool} {title}]" if title else f"[tool:{tool}]"
 
-        if os.getenv("SWITCH_LOG_TOOL_INPUT", "").lower() in {"1", "true", "yes"}:
+        if should_log_tool_input():
             raw_input: object | None = None
             if isinstance(tool_state, dict):
                 raw_input = tool_state.get("input") or tool_state.get("args")
             if raw_input is None:
                 raw_input = part.get("input") or part.get("args")
 
-            formatted = self._format_tool_input(str(tool), raw_input)
+            formatted = format_tool_input_preview(str(tool), raw_input)
             if formatted:
-                max_len = int(os.getenv("SWITCH_LOG_TOOL_INPUT_MAX", "2000"))
+                max_len = tool_input_max_len()
                 formatted = formatted[:max_len]
                 self._log_to_file(f"{desc}\n  input: {formatted}\n")
                 return ("tool", f"{desc} input: {formatted}")

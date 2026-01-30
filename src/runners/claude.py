@@ -7,28 +7,13 @@ import json
 import logging
 import os
 import shlex
-from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
 from src.runners.base import BaseRunner, RunState
+from src.runners.claude_processor import ClaudeEventProcessor
 
 log = logging.getLogger("claude")
-
-
-@dataclass
-class ClaudeResult:
-    """Final result from a Claude run."""
-
-    text: str
-    session_id: str | None
-    cost: float
-    turns: int
-    tool_count: int
-    total_tokens: int
-    context_window: int
-    duration_s: float
-
 
 Event = tuple[str, object]
 
@@ -52,6 +37,10 @@ class ClaudeRunner(BaseRunner):
     ):
         super().__init__(working_dir, output_dir, session_name)
         self.process: asyncio.subprocess.Process | None = None
+        self._processor = ClaudeEventProcessor(
+            log_to_file=self._log_to_file,
+            log_response=self._log_response,
+        )
 
     def _build_command(
         self,
@@ -101,131 +90,6 @@ class ClaudeRunner(BaseRunner):
         )
         return any(n in haystack for n in needles)
 
-    def _handle_system_init(self, event: dict, state: RunState) -> Event | None:
-        """Handle system init event - extracts session ID."""
-        if event.get("subtype") != "init":
-            return None
-        session_id = event.get("session_id")
-        if session_id:
-            state.session_id = session_id
-            return ("session_id", session_id)
-        return None
-
-    def _handle_assistant_text(self, block: dict, state: RunState) -> Event | None:
-        """Handle text block from assistant message."""
-        text = block.get("text", "").strip()
-        if not text:
-            return None
-        state.text = text
-        self._log_response(text)
-        return ("text", text)
-
-    def _handle_assistant_tool(self, block: dict, state: RunState) -> Event | None:
-        """Handle tool_use block from assistant message."""
-        state.tool_count += 1
-        name = block.get("name", "?")
-        tool_input = block.get("input", {})
-
-        # Normalize tool summary format to match OpenCode-style tool markers.
-        # This makes downstream clients/UI logic consistent across engines.
-        tool_id = str(name).strip().lower() if name else "?"
-
-        if name == "Bash":
-            preview = ""
-            if isinstance(tool_input, dict):
-                preview = str(tool_input.get("command", "") or "")
-            preview = preview.strip().replace("\n", " ")[:60]
-            desc = f"[tool:{tool_id} {preview}]" if preview else f"[tool:{tool_id}]"
-        elif name in ("Read", "Write", "Edit"):
-            path = ""
-            if isinstance(tool_input, dict):
-                path = str(tool_input.get("file_path", "") or "")
-            leaf = Path(path).name if path else ""
-            desc = f"[tool:{tool_id} {leaf}]" if leaf else f"[tool:{tool_id}]"
-        else:
-            desc = f"[tool:{tool_id}]" if tool_id else "[tool:?]"
-
-        self._log_to_file(f"{desc}\n")
-        return ("tool", desc)
-
-    def _handle_assistant(self, event: dict, state: RunState) -> list[Event]:
-        """Handle assistant event - yields text and tool events."""
-        events = []
-        content = event.get("message", {}).get("content", [])
-
-        for block in content:
-            block_type = block.get("type")
-            if block_type == "text":
-                result = self._handle_assistant_text(block, state)
-                if result:
-                    events.append(result)
-            elif block_type == "tool_use":
-                result = self._handle_assistant_tool(block, state)
-                if result:
-                    events.append(result)
-
-        return events
-
-    def _handle_result(self, event: dict, state: RunState) -> Event:
-        """Handle result event - extracts final stats."""
-        state.saw_result = True
-
-        if event.get("is_error"):
-            state.saw_error = True
-            return ("error", event.get("result", "Unknown error"))
-
-        cost = event.get("total_cost_usd", 0)
-        turns = event.get("num_turns", 0)
-        duration = event.get("duration_ms", 0) / 1000
-
-        usage = event.get("usage", {})
-        total_tokens = (
-            usage.get("input_tokens", 0)
-            + usage.get("cache_creation_input_tokens", 0)
-            + usage.get("cache_read_input_tokens", 0)
-            + usage.get("output_tokens", 0)
-        )
-
-        # Find context window and model name from model usage
-        context_window = 200000
-        model_name = "claude"
-        for name, model_data in event.get("modelUsage", {}).items():
-            model_name = name
-            context_window = model_data.get("contextWindow", context_window)
-            break  # Use the first (usually only) model
-
-        tokens_k = total_tokens / 1000
-        context_k = context_window / 1000
-        summary = f"[{model_name} {turns}t {state.tool_count}tools ${cost:.3f} {duration:.1f}s | {tokens_k:.1f}k/{context_k:.0f}k]"
-
-        payload = {
-            "engine": "claude",
-            "model": model_name,
-            "turns": turns,
-            "tool_count": state.tool_count,
-            "tokens_total": total_tokens,
-            "context_window": context_window,
-            "cost_usd": float(cost),
-            "duration_s": float(duration),
-            "summary": summary,
-        }
-
-        return ("result", payload)
-
-    def _parse_event(self, event: dict, state: RunState) -> list[Event]:
-        """Parse a JSON event and return yield values."""
-        event_type = event.get("type")
-
-        if event_type == "system":
-            result = self._handle_system_init(event, state)
-            return [result] if result else []
-        elif event_type == "assistant":
-            return self._handle_assistant(event, state)
-        elif event_type == "result":
-            return [self._handle_result(event, state)]
-
-        return []
-
     async def run(
         self, prompt: str, session_id: str | None = None
     ) -> AsyncIterator[Event]:
@@ -274,7 +138,7 @@ class ClaudeRunner(BaseRunner):
                             non_json_lines.append(line)
                         continue
 
-                    for result in self._parse_event(event, state):
+                    for result in self._processor.parse_event(event, state):
                         emitted_any = True
                         yield result
 
