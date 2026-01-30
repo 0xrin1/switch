@@ -132,11 +132,8 @@ class CommandHandler:
             self.bot.send_reply("Session not found.")
             return True
 
-        handler = self.bot.engine_handler_for(session.active_engine)
-        if not handler:
-            self.bot.send_reply(f"Unknown engine '{session.active_engine}'.")
-            return True
-        if not handler.supports_reasoning:
+        engine = (session.active_engine or "").strip().lower()
+        if engine != "opencode":
             self.bot.send_reply("/thinking only applies to OpenCode sessions.")
             return True
 
@@ -165,11 +162,17 @@ class CommandHandler:
             self.bot.send_reply("Session not found.")
             return True
 
-        handler = self.bot.engine_handler_for(session.active_engine)
-        if not handler:
+        # Cancel any in-flight work before clearing remote session state.
+        self.bot.cancel_operations(notify=False)
+
+        engine = (session.active_engine or "").strip().lower()
+        if engine == "claude":
+            self.bot.sessions.reset_claude_session(self.bot.session_name)
+        elif engine == "opencode":
+            self.bot.sessions.reset_opencode_session(self.bot.session_name)
+        else:
             self.bot.send_reply(f"Unknown engine '{session.active_engine}'.")
             return True
-        handler.reset()
         self.bot.send_reply("Session reset.")
         return True
 
