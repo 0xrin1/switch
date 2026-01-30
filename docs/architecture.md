@@ -69,7 +69,7 @@ flowchart TB
     SessionBot["SessionBot (XMPP adapter)\n(src/bots/session/bot.py)"]
     Inbound["Inbound parse\n(inbound.py)"]
     Typing["Typing keepalive\n(typing.py)"]
-    Runtime["[Q] SessionRuntime\n(queue + cancel + run)\n(src/core/session_runtime/runtime.py)"]
+    Runtime["[Q] SessionRuntime\n(queue + cancel + run)\n(src/core/session_runtime/runtime.py)\n+ Ralph mode"]
     Cancel["[X] cancel_operations\n(drop queued + cancel in-flight)"]
   end
 
@@ -204,6 +204,8 @@ This means:
 Switch's session execution is split into a thin XMPP adapter (SessionBot) and a
 single-session runtime (SessionRuntime) that owns queueing, cancellation, and
 runner orchestration.
+
+Ralph also runs inside SessionRuntime (no separate runner loop).
 
 ### Orchestrator Contacts
 
