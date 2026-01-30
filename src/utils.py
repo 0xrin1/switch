@@ -273,7 +273,6 @@ class BaseXMPPBot(ClientXMPP):
         msg.send()
 
     def _format_exception_for_user(self, exc: BaseException) -> str:
-        # Keep this terse: users need a signal, not a traceback.
         msg = str(exc).strip()
         if msg:
             return f"Error: {type(exc).__name__}: {msg}"
@@ -306,7 +305,6 @@ class BaseXMPPBot(ClientXMPP):
             try:
                 self.send_reply(self._format_exception_for_user(exc), recipient=recipient)
             except Exception:
-                # Last-ditch: avoid masking the original exception.
                 pass
             return None
 

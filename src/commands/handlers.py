@@ -27,8 +27,6 @@ def command(name: str, *aliases: str, exact: bool = True):
     def decorator(
         func: Callable[..., Awaitable[bool]],
     ) -> Callable[..., Awaitable[bool]]:
-        # Use setattr so static type checkers don't need to know about the
-        # decorator metadata attributes.
         setattr(func, "_command_name", name)
         setattr(func, "_command_aliases", aliases)
         setattr(func, "_command_exact", exact)

@@ -273,7 +273,6 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             except asyncio.QueueEmpty:
                 break
 
-        # Best-effort goodbye from the session contact, before we unregister.
         self.send_reply("Session closed. Goodbye!")
 
         # Give any final messages a brief chance to flush.
@@ -285,7 +284,6 @@ class SessionBot(RalphMixin, BaseXMPPBot):
                 raise RuntimeError("Session manager unavailable")
             await manager.kill_session(self.session_name, send_goodbye=False)
         finally:
-            # If kill_session fails partway through, still tear down the XMPP connection.
             with suppress(Exception):
                 self.disconnect()
 

@@ -175,7 +175,6 @@ async def kill_session(
         return session is not None
 
     if send_goodbye:
-        # Best-effort: only send if the in-memory bot can.
         bot = manager.session_bots.get(name)
         if bot and bot.is_connected() and not bot.shutting_down:
             try:

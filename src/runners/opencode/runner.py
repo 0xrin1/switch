@@ -316,7 +316,6 @@ class OpenCodeRunner(BaseRunner):
             answered = True
         finally:
             if not answered:
-                # Avoid leaving the server waiting on a question that will never be answered.
                 await self._client.reject_question(session, question)
 
     async def _process_event_loop(
