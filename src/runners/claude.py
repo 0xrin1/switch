@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import shlex
@@ -12,6 +11,7 @@ from typing import AsyncIterator
 
 from src.runners.base import BaseRunner, RunState
 from src.runners.claude_processor import ClaudeEventProcessor
+from src.runners.pipeline import JSONLineStats, iter_json_line_pipeline
 
 log = logging.getLogger("claude")
 
@@ -126,21 +126,17 @@ class ClaudeRunner(BaseRunner):
                 if self.process.stdout is None:
                     raise RuntimeError("Claude process stdout missing")
 
-                async for raw_line in self.process.stdout:
-                    line = raw_line.decode(errors="replace").strip()
-                    if not line:
-                        continue
+                stats = JSONLineStats()
+                async for result in iter_json_line_pipeline(
+                    byte_stream=self.process.stdout,
+                    state=state,
+                    parse_event=self._processor.parse_event,
+                    stats=stats,
+                ):
+                    yield result
 
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        if len(non_json_lines) < 50:
-                            non_json_lines.append(line)
-                        continue
-
-                    for result in self._processor.parse_event(event, state):
-                        emitted_any = True
-                        yield result
+                emitted_any = stats.emitted_any
+                non_json_lines = stats.non_json_lines
 
                 await self.process.wait()
 

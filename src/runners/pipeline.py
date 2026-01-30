@@ -14,13 +14,21 @@ Engines supply:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, TypeVar
 
 from src.runners.base import RunState
 
 
 T = TypeVar("T")
+
+
+@dataclass
+class JSONLineStats:
+    emitted_any: bool = False
+    non_json_lines: list[str] = field(default_factory=list)
 
 
 async def iter_queue_pipeline(
@@ -95,3 +103,33 @@ async def iter_queue_pipeline(
                 await handle_question(item)
             else:
                 yield item
+
+
+async def iter_json_line_pipeline(
+    *,
+    byte_stream: AsyncIterator[bytes],
+    state: RunState,
+    parse_event: Callable[[dict, RunState], list[T]],
+    stats: JSONLineStats,
+    non_json_limit: int = 50,
+) -> AsyncIterator[T]:
+    """Parse a JSON-lines byte stream and yield parsed events."""
+
+    async for raw_line in byte_stream:
+        line = raw_line.decode(errors="replace").strip()
+        if not line:
+            continue
+
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            if len(stats.non_json_lines) < non_json_limit:
+                stats.non_json_lines.append(line)
+            continue
+
+        if not isinstance(event, dict):
+            continue
+
+        for result in parse_event(event, state):
+            stats.emitted_any = True
+            yield result
