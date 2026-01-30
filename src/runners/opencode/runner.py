@@ -15,6 +15,7 @@ from src.runners.opencode.client import OpenCodeClient
 from src.runners.opencode.models import Event, Question, QuestionCallback
 from src.runners.opencode.orchestrator import iter_opencode_events
 from src.runners.opencode.processor import OpenCodeEventProcessor
+from src.runners.opencode.transport import OpenCodeTransport, build_http_timeout
 
 from src.attachments import Attachment
 
@@ -49,10 +50,7 @@ class OpenCodeRunner(BaseRunner):
             log_to_file=self._log_to_file,
             log_response=self._log_response,
         )
-        self._client_session: aiohttp.ClientSession | None = None
-        self._active_session_id: str | None = None
-        self._cancelled = False
-        self._abort_task: asyncio.Task | None = None
+        self._transport = OpenCodeTransport(self._client)
 
     def _build_model_payload(self) -> dict | None:
         if not self.model:
@@ -82,7 +80,7 @@ class OpenCodeRunner(BaseRunner):
         answered = False
         try:
             while not callback_task.done():
-                if self._cancelled:
+                if self._transport.cancelled:
                     callback_task.cancel()
                     raise asyncio.CancelledError()
                 await asyncio.sleep(0.1)
@@ -92,37 +90,6 @@ class OpenCodeRunner(BaseRunner):
         finally:
             if not answered:
                 await self._client.reject_question(session, question)
-
-    async def _cleanup_tasks(
-        self, sse_task: asyncio.Task | None, message_task: asyncio.Task | None
-    ) -> None:
-        """Cleanup.
-
-        This project prefers bubbling errors for simplicity; cleanup is not
-        guaranteed to be best-effort.
-        """
-        self._cancelled = True
-        if sse_task:
-            sse_task.cancel()
-            await sse_task
-
-        if message_task and not message_task.done():
-            message_task.cancel()
-            await message_task
-
-        if (
-            self._client_session
-            and self._active_session_id
-            and not self._client_session.closed
-        ):
-            await self._client.abort_session(
-                self._client_session, self._active_session_id
-            )
-
-        if self._abort_task and not self._abort_task.done():
-            await self._abort_task
-        self._client_session = None
-        self._abort_task = None
 
     async def run(
         self,
@@ -150,35 +117,27 @@ class OpenCodeRunner(BaseRunner):
         event_queue: asyncio.Queue[dict] = asyncio.Queue()
 
         try:
-            # Some OpenCode server modes keep /message open until completion.
-            # Make the HTTP client timeout configurable so long/slow sessions
-            # don't fail at a hard-coded limit.
-            http_timeout_s = float(os.getenv("OPENCODE_HTTP_TIMEOUT_S", "600"))
-            timeout = aiohttp.ClientTimeout(total=http_timeout_s)
-            async with aiohttp.ClientSession(auth=self._client.auth, timeout=timeout) as session:
-                self._client_session = session
-                await self._client.check_health(session)
-
-                if not session_id:
-                    session_id = await self._client.create_session(session, self.session_name)
-
+            async with aiohttp.ClientSession(
+                auth=self._client.auth,
+                timeout=build_http_timeout(),
+            ) as session:
+                session_id = await self._transport.start_session(
+                    session,
+                    session_name=self.session_name,
+                    session_id=session_id,
+                )
                 state.session_id = session_id
-                self._active_session_id = session_id
                 yield ("session_id", session_id)
 
-                sse_task = asyncio.create_task(
-                    self._client.stream_events(session, event_queue, should_stop=lambda: self._cancelled)
-                )
-                message_task = asyncio.create_task(
-                    self._client.send_message(
-                        session,
-                        session_id,
-                        prompt,
-                        attachments,
-                        self._build_model_payload(),
-                        self.agent,
-                        self.reasoning_mode,
-                    )
+                sse_task, message_task = self._transport.start_tasks(
+                    session,
+                    session_id=session_id,
+                    prompt=prompt,
+                    attachments=attachments,
+                    model_payload=self._build_model_payload(),
+                    agent=self.agent,
+                    reasoning_mode=self.reasoning_mode,
+                    event_queue=event_queue,
                 )
 
                 async for event in iter_opencode_events(
@@ -189,46 +148,27 @@ class OpenCodeRunner(BaseRunner):
                     sse_task=sse_task,
                     message_task=message_task,
                     processor=self._processor,
-                    should_cancel=lambda: self._cancelled,
+                    should_cancel=lambda: self._transport.cancelled,
                     handle_question=self._handle_question_event,
                 ):
                     yield event
 
-                response = await message_task
-                if isinstance(response, dict):
-                    self._processor.process_message_response(response, state)
-                    if not state.saw_result:
-                        state.saw_result = True
-                        yield ("result", self._processor.make_result(state))
-                elif not state.saw_result and not state.saw_error:
-                    # Some server modes return an empty body for /message and rely on
-                    # storing output in the session message list. Fall back to polling.
-                    polled = await self._client.poll_assistant_text(session, session_id)
-                    if polled and isinstance(polled, str):
-                        state.text = polled
-                        state.saw_result = True
-                        yield ("result", self._processor.make_result(state))
-                    else:
-                        event_type, message = self._processor.make_fallback_error(state)
-                        raise RuntimeError(message)
+                if not state.saw_result and not state.saw_error:
+                    result = await self._transport.finalize(
+                        session=session,
+                        session_id=session_id,
+                        state=state,
+                        message_task=message_task,
+                        processor=self._processor,
+                    )
+                    yield ("result", result)
         finally:
-            await self._cleanup_tasks(sse_task, message_task)
+            await self._transport.cleanup(sse_task=sse_task, message_task=message_task)
 
     def cancel(self) -> None:
         """Request cancellation of the running session."""
-        self._cancelled = True
-        if (
-            self._client_session
-            and self._active_session_id
-            and not self._client_session.closed
-        ):
-            self._abort_task = asyncio.create_task(
-                self._client.abort_session(
-                    self._client_session, self._active_session_id
-                )
-            )
+        self._transport.cancel()
 
     async def wait_cancelled(self) -> None:
         """Wait for cancellation cleanup to complete."""
-        if self._abort_task:
-            await self._abort_task
+        await self._transport.wait_cancelled()
