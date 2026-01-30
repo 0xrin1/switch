@@ -23,6 +23,7 @@ from src.helpers import (
     log_activity,
 )
 from src.runners import Question, Runner, create_runner
+from src.runners.opencode.config import OpenCodeConfig
 from src.attachments import Attachment, AttachmentStore
 from src.utils import SWITCH_META_NS, BaseXMPPBot, build_message_meta
 
@@ -765,10 +766,12 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             working_dir=self.working_dir,
             output_dir=self.output_dir,
             session_name=self.session_name,
-            model=model_id,
-            reasoning_mode=session.reasoning_mode,
-            agent=agent or session.opencode_agent,
-            question_callback=question_callback,
+            opencode_config=OpenCodeConfig(
+                model=model_id,
+                reasoning_mode=session.reasoning_mode,
+                agent=agent or session.opencode_agent,
+                question_callback=question_callback,
+            ),
         )
 
         response_text = ""
@@ -854,10 +857,12 @@ class SessionBot(RalphMixin, BaseXMPPBot):
             working_dir=self.working_dir,
             output_dir=self.output_dir,
             session_name=self.session_name,
-            model=session.model_id,
-            reasoning_mode=session.reasoning_mode,
-            agent=session.opencode_agent,
-            question_callback=question_callback,
+            opencode_config=OpenCodeConfig(
+                model=session.model_id,
+                reasoning_mode=session.reasoning_mode,
+                agent=session.opencode_agent,
+                question_callback=question_callback,
+            ),
         )
         response_parts: list[str] = []
         tool_summaries: list[str] = []
@@ -867,9 +872,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
         self.log.info(f"Starting OpenCode run for: {body[:50]}...")
         try:
-            async for event_type, content in self.runner.run(
-                body, session.opencode_session_id, attachments=None
-            ):
+            async for event_type, content in self.runner.run(body, session.opencode_session_id):
                 if self.shutting_down:
                     return
                 event_count += 1

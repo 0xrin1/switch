@@ -9,8 +9,6 @@ import os
 from typing import Callable
 
 import aiohttp
-
-from src.attachments import Attachment
 from src.runners.opencode.errors import OpenCodeHTTPError, OpenCodeProtocolError
 from src.runners.opencode.models import Question
 
@@ -97,12 +95,10 @@ class OpenCodeClient:
         session: aiohttp.ClientSession,
         session_id: str,
         prompt: str,
-        attachments: list[Attachment] | None,
         model_payload: dict | None,
         agent: str,
         reasoning_mode: str,
     ) -> object | None:
-        # Attachments are represented as local paths in the prompt text.
         parts: list[dict[str, object]] = [{"type": "text", "text": prompt}]
 
         body: dict[str, object] = {"parts": parts}

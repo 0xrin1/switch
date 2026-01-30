@@ -12,15 +12,68 @@ import aiohttp
 
 from src.runners.base import BaseRunner, RunState
 from src.runners.opencode.client import OpenCodeClient
+from src.runners.opencode.config import OpenCodeConfig
 from src.runners.opencode.events import extract_session_id
 from src.runners.opencode.models import Event, Question, QuestionCallback
 from src.runners.opencode.processor import OpenCodeEventProcessor
 from src.runners.opencode.transport import OpenCodeTransport, build_http_timeout
 from src.runners.pipeline import iter_queue_pipeline
 
-from src.attachments import Attachment
-
 log = logging.getLogger("opencode")
+
+
+class _QuestionHandler:
+    async def handle(
+        self,
+        session: aiohttp.ClientSession,
+        client: OpenCodeClient,
+        question: Question,
+        *,
+        cancelled,
+    ) -> None:
+        raise NotImplementedError
+
+
+class _RejectQuestionHandler(_QuestionHandler):
+    async def handle(
+        self,
+        session: aiohttp.ClientSession,
+        client: OpenCodeClient,
+        question: Question,
+        *,
+        cancelled,
+    ) -> None:
+        # Always make forward progress: if the higher-level app isn't wired to
+        # answer questions, reject them immediately.
+        await client.reject_question(session, question)
+
+
+class _CallbackQuestionHandler(_QuestionHandler):
+    def __init__(self, callback: QuestionCallback):
+        self._callback = callback
+
+    async def handle(
+        self,
+        session: aiohttp.ClientSession,
+        client: OpenCodeClient,
+        question: Question,
+        *,
+        cancelled,
+    ) -> None:
+        callback_task = asyncio.create_task(self._callback(question))
+        answered = False
+        try:
+            while not callback_task.done():
+                if cancelled():
+                    callback_task.cancel()
+                    raise asyncio.CancelledError()
+                await asyncio.sleep(0.1)
+            answers = callback_task.result()
+            await client.answer_question(session, question, answers)
+            answered = True
+        finally:
+            if not answered:
+                await client.reject_question(session, question)
 
 
 class OpenCodeRunner(BaseRunner):
@@ -35,70 +88,52 @@ class OpenCodeRunner(BaseRunner):
         working_dir: str,
         output_dir: Path,
         session_name: str | None = None,
-        model: str | None = None,
-        reasoning_mode: str = "normal",
-        agent: str = "bridge",
-        question_callback: QuestionCallback | None = None,
-        server_url: str | None = None,
+        config: OpenCodeConfig | None = None,
     ):
         super().__init__(working_dir, output_dir, session_name)
-        self.model = model
-        self.reasoning_mode = reasoning_mode
-        self.agent = agent
-        self.question_callback = question_callback
-        self._client = OpenCodeClient(server_url=server_url)
+
+        self._config = config or OpenCodeConfig()
+
+        self._client = OpenCodeClient(server_url=self._config.server_url)
         self._processor = OpenCodeEventProcessor(
             log_to_file=self._log_to_file,
             log_response=self._log_response,
-            model=model,
+            model=self._config.model,
         )
         self._transport = OpenCodeTransport(self._client)
 
+        self._question_handler: _QuestionHandler
+        if self._config.question_callback:
+            self._question_handler = _CallbackQuestionHandler(self._config.question_callback)
+        else:
+            self._question_handler = _RejectQuestionHandler()
+
     def _build_model_payload(self) -> dict | None:
-        if not self.model:
+        if not self._config.model:
             return None
-        if "/" not in self.model:
+        if "/" not in self._config.model:
             return None
-        provider_id, model_id = self.model.split("/", 1)
+        provider_id, model_id = self._config.model.split("/", 1)
         if not provider_id or not model_id:
             return None
         return {"providerID": provider_id, "modelID": model_id}
-
-    async def _run_question_callback(self, question: Question) -> list[list[str]]:
-        if not self.question_callback:
-            return []
-        return await self.question_callback(question)
 
     async def _handle_question_event(
         self,
         session: aiohttp.ClientSession,
         question: Question,
     ) -> None:
-        """Handle question event - run callback and answer/reject."""
-        if not self.question_callback:
-            return
-
-        callback_task = asyncio.create_task(self._run_question_callback(question))
-        answered = False
-        try:
-            while not callback_task.done():
-                if self._transport.cancelled:
-                    callback_task.cancel()
-                    raise asyncio.CancelledError()
-                await asyncio.sleep(0.1)
-            answers = callback_task.result()
-            await self._client.answer_question(session, question, answers)
-            answered = True
-        finally:
-            if not answered:
-                await self._client.reject_question(session, question)
+        await self._question_handler.handle(
+            session,
+            self._client,
+            question,
+            cancelled=lambda: self._transport.cancelled,
+        )
 
     async def run(
         self,
         prompt: str,
         session_id: str | None = None,
-        *,
-        attachments: list[Attachment] | None = None,
     ) -> AsyncIterator[Event]:
         """Run OpenCode, yielding (event_type, content) tuples.
 
@@ -121,7 +156,7 @@ class OpenCodeRunner(BaseRunner):
         try:
             async with aiohttp.ClientSession(
                 auth=self._client.auth,
-                timeout=build_http_timeout(),
+                timeout=build_http_timeout(total_s=self._config.http_timeout_s),
             ) as session:
                 session_id = await self._transport.start_session(
                     session,
@@ -135,10 +170,9 @@ class OpenCodeRunner(BaseRunner):
                     session,
                     session_id=session_id,
                     prompt=prompt,
-                    attachments=attachments,
                     model_payload=self._build_model_payload(),
-                    agent=self.agent,
-                    reasoning_mode=self.reasoning_mode,
+                    agent=self._config.agent,
+                    reasoning_mode=self._config.reasoning_mode,
                     event_queue=event_queue,
                 )
 
@@ -151,9 +185,12 @@ class OpenCodeRunner(BaseRunner):
                     event_type, data = e
                     return event_type == "question" and isinstance(data, Question)
 
-                idle_timeout_s = float(
-                    os.getenv("OPENCODE_POST_MESSAGE_IDLE_TIMEOUT_S", "30")
-                )
+                if self._config.post_message_idle_timeout_s is not None:
+                    idle_timeout_s = float(self._config.post_message_idle_timeout_s)
+                else:
+                    idle_timeout_s = float(
+                        os.getenv("OPENCODE_POST_MESSAGE_IDLE_TIMEOUT_S", "30")
+                    )
 
                 async for event in iter_queue_pipeline(
                     event_queue=event_queue,

@@ -19,3 +19,4 @@ class Question:
 # Type for question callback: receives Question, returns answers array
 # Each answer is a list of selected option labels (one per question, positional)
 QuestionCallback = Callable[[Question], Awaitable[list[list[str]]]]
+

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable, Coroutine
 from src.db import SessionRepository
 from src.lifecycle.sessions import create_session as lifecycle_create_session
 from src.runners import create_runner
+from src.runners.opencode.config import OpenCodeConfig
 from src.utils import BaseXMPPBot
 
 if TYPE_CHECKING:
@@ -209,8 +210,10 @@ class DispatcherBot(BaseXMPPBot):
             "opencode",
             working_dir=working_dir,
             output_dir=Path(self.working_dir) / "output",
-            model="glm_vllm/glm-4.7-flash",
-            agent="bridge",
+            opencode_config=OpenCodeConfig(
+                model="glm_vllm/glm-4.7-flash",
+                agent="bridge",
+            ),
         )
 
         result_text = ""

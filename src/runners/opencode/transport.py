@@ -10,8 +10,6 @@ import asyncio
 import os
 
 import aiohttp
-
-from src.attachments import Attachment
 from src.runners.base import RunState
 from src.runners.opencode.client import OpenCodeClient
 from src.runners.opencode.processor import OpenCodeEventProcessor
@@ -64,7 +62,6 @@ class OpenCodeTransport:
         *,
         session_id: str,
         prompt: str,
-        attachments: list[Attachment] | None,
         model_payload: dict | None,
         agent: str,
         reasoning_mode: str,
@@ -80,7 +77,6 @@ class OpenCodeTransport:
                 session,
                 session_id,
                 prompt,
-                attachments,
                 model_payload,
                 agent,
                 reasoning_mode,
@@ -148,6 +144,10 @@ class OpenCodeTransport:
         self._abort_task = None
 
 
-def build_http_timeout() -> aiohttp.ClientTimeout:
-    http_timeout_s = float(os.getenv("OPENCODE_HTTP_TIMEOUT_S", "600"))
+def build_http_timeout(*, total_s: float | None = None) -> aiohttp.ClientTimeout:
+    http_timeout_s = (
+        float(total_s)
+        if total_s is not None
+        else float(os.getenv("OPENCODE_HTTP_TIMEOUT_S", "600"))
+    )
     return aiohttp.ClientTimeout(total=http_timeout_s)
