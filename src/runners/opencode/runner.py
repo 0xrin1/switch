@@ -12,10 +12,11 @@ import aiohttp
 
 from src.runners.base import BaseRunner, RunState
 from src.runners.opencode.client import OpenCodeClient
+from src.runners.opencode.events import extract_session_id
 from src.runners.opencode.models import Event, Question, QuestionCallback
-from src.runners.opencode.orchestrator import iter_opencode_events
 from src.runners.opencode.processor import OpenCodeEventProcessor
 from src.runners.opencode.transport import OpenCodeTransport, build_http_timeout
+from src.runners.pipeline import iter_queue_pipeline
 
 from src.attachments import Attachment
 
@@ -140,16 +141,32 @@ class OpenCodeRunner(BaseRunner):
                     event_queue=event_queue,
                 )
 
-                async for event in iter_opencode_events(
-                    session=session,
+                async def _handle_question(e: Event) -> None:
+                    _, data = e
+                    if isinstance(data, Question):
+                        await self._handle_question_event(session, data)
+
+                def _is_question(e: Event) -> bool:
+                    event_type, data = e
+                    return event_type == "question" and isinstance(data, Question)
+
+                idle_timeout_s = float(
+                    os.getenv("OPENCODE_POST_MESSAGE_IDLE_TIMEOUT_S", "30")
+                )
+
+                async for event in iter_queue_pipeline(
+                    event_queue=event_queue,
                     session_id=session_id,
                     state=state,
-                    event_queue=event_queue,
+                    parse_event=self._processor.parse_event,
+                    extract_session_id=extract_session_id,
                     sse_task=sse_task,
                     message_task=message_task,
-                    processor=self._processor,
                     should_cancel=lambda: self._transport.cancelled,
-                    handle_question=self._handle_question_event,
+                    idle_timeout_s=idle_timeout_s,
+                    is_done=lambda s: s.saw_result or s.saw_error,
+                    is_question=_is_question,
+                    handle_question=_handle_question,
                 ):
                     yield event
 
