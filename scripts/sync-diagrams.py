@@ -39,7 +39,11 @@ DIAGRAMS: dict[str, Diagram] = {
     "system": Diagram(
         name="system",
         mermaid_path=REPO_ROOT / "docs" / "diagrams" / "system.mermaid",
-    )
+    ),
+    "system-detailed": Diagram(
+        name="system-detailed",
+        mermaid_path=REPO_ROOT / "docs" / "diagrams" / "system-detailed.mermaid",
+    ),
 }
 
 TARGETS: list[Path] = [
