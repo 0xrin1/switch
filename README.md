@@ -1,5 +1,7 @@
 # Switch
 
+Multi-contact OpenCode for developers.
+
 > **Note:** This project is vibe coded and heavily WIP. Expect rough edges, breaking changes, and incomplete features.
 
 <!-- DIAGRAM:system -->
