@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.runners import ClaudeRunner
+from src.runners import create_runner
 
 if TYPE_CHECKING:
     from src.db import RalphLoopRepository, SessionRepository
@@ -158,7 +158,12 @@ class RalphLoop:
     async def _run_iteration(self) -> IterationResult:
         """Execute a single iteration."""
         result = IterationResult()
-        runner = ClaudeRunner(self.working_dir, self.output_dir, self.bot.session_name)
+        runner = create_runner(
+            "claude",
+            working_dir=self.working_dir,
+            output_dir=self.output_dir,
+            session_name=self.bot.session_name,
+        )
         self.bot.runner = runner
 
         # Get current session ID
@@ -169,19 +174,22 @@ class RalphLoop:
                 claude_session_id = session.claude_session_id
 
         try:
-            async for event_type, content in runner.run(self._build_prompt(), claude_session_id):
-                if event_type == "session_id" and self.sessions:
+            async for event_type, content in runner.run(
+                self._build_prompt(), claude_session_id
+            ):
+                if event_type == "session_id" and self.sessions and isinstance(content, str):
                     self.sessions.update_claude_session_id(self.bot.session_name, content)
                     result.session_id = content
-                elif event_type == "text":
+                elif event_type == "text" and isinstance(content, str):
                     result.text = content
                 elif event_type == "tool":
                     result.tool_count += 1
                 elif event_type == "result":
-                    cost_match = re.search(r"\$(\d+\.?\d*)", content)
-                    if cost_match:
-                        result.cost = float(cost_match.group(1))
-                elif event_type == "error":
+                    if isinstance(content, dict):
+                        cost = content.get("cost_usd")
+                        if isinstance(cost, (int, float)):
+                            result.cost = float(cost)
+                elif event_type == "error" and isinstance(content, str):
                     result.error = content
         finally:
             self.bot.runner = None

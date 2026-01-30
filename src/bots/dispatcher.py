@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Callable, Coroutine
 
 from src.db import SessionRepository
 from src.lifecycle.sessions import create_session as lifecycle_create_session
-from src.runners.opencode import OpenCodeRunner
+from src.runners import create_runner
 from src.utils import BaseXMPPBot
 
 if TYPE_CHECKING:
@@ -205,7 +205,8 @@ class DispatcherBot(BaseXMPPBot):
             prompt = f"please commit and push the working changes in {repo_path}"
             working_dir = str(repo_path)
 
-        runner = OpenCodeRunner(
+        runner = create_runner(
+            "opencode",
             working_dir=working_dir,
             output_dir=Path(self.working_dir) / "output",
             model="glm_vllm/glm-4.7-flash",
@@ -214,8 +215,10 @@ class DispatcherBot(BaseXMPPBot):
 
         result_text = ""
         async for event_type, data in runner.run(prompt):
-            if event_type == "result" and isinstance(data, str):
-                result_text = data
+            if event_type == "result" and isinstance(data, dict):
+                text = data.get("text")
+                if isinstance(text, str):
+                    result_text = text
             elif event_type == "error":
                 self.send_reply(f"Error: {data}", recipient=self.xmpp_recipient)
                 return

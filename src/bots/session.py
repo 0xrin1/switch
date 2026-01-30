@@ -22,7 +22,7 @@ from src.helpers import (
     append_to_history,
     log_activity,
 )
-from src.runners import ClaudeRunner, OpenCodeRunner, Question
+from src.runners import Question, Runner, create_runner
 from src.attachments import Attachment, AttachmentStore
 from src.utils import SWITCH_META_NS, BaseXMPPBot, build_message_meta
 
@@ -70,7 +70,7 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         self.xmpp_server = xmpp_server
         self.ejabberd_ctl = ejabberd_ctl
         self.manager = manager
-        self.runner: OpenCodeRunner | ClaudeRunner | None = None
+        self.runner: Runner | None = None
         self._run_task: asyncio.Future | None = None
         self.processing = False
         self.shutting_down = False
@@ -760,10 +760,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
 
         self.processing = True
         question_callback = self._create_question_callback()
-        self.runner = OpenCodeRunner(
-            self.working_dir,
-            self.output_dir,
-            self.session_name,
+        self.runner = create_runner(
+            "opencode",
+            working_dir=self.working_dir,
+            output_dir=self.output_dir,
+            session_name=self.session_name,
             model=model_id,
             reasoning_mode=session.reasoning_mode,
             agent=agent or session.opencode_agent,
@@ -794,7 +795,12 @@ class SessionBot(RalphMixin, BaseXMPPBot):
     ):
         """Run Claude and handle events."""
         body = self._augment_prompt_with_attachments(body, attachments)
-        self.runner = ClaudeRunner(self.working_dir, self.output_dir, self.session_name)
+        self.runner = create_runner(
+            "claude",
+            working_dir=self.working_dir,
+            output_dir=self.output_dir,
+            session_name=self.session_name,
+        )
         response_parts: list[str] = []
         tool_summaries: list[str] = []
         last_progress_at = 0
@@ -843,10 +849,11 @@ class SessionBot(RalphMixin, BaseXMPPBot):
         # Set up question callback for handling AI questions
         question_callback = self._create_question_callback()
 
-        self.runner = OpenCodeRunner(
-            self.working_dir,
-            self.output_dir,
-            self.session_name,
+        self.runner = create_runner(
+            "opencode",
+            working_dir=self.working_dir,
+            output_dir=self.output_dir,
+            session_name=self.session_name,
             model=session.model_id,
             reasoning_mode=session.reasoning_mode,
             agent=session.opencode_agent,

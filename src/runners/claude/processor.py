@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from src.runners.base import RunState
+from src.runners.ports import RunnerEvent
 from src.runners.tool_logging import (
     format_tool_input_preview,
     should_log_tool_input,
@@ -32,7 +33,7 @@ class ClaudeResult:
     duration_s: float
 
 
-Event = tuple[str, object]
+Event = RunnerEvent
 
 
 class ClaudeEventProcessor:

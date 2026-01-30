@@ -12,10 +12,11 @@ from src.runners.base import BaseRunner, RunState
 from src.runners.claude.processor import ClaudeEventProcessor
 from src.runners.pipeline import JSONLineStats, iter_json_line_pipeline
 from src.runners.subprocess_transport import SubprocessTransport
+from src.runners.ports import RunnerEvent
 
 log = logging.getLogger("claude")
 
-Event = tuple[str, object]
+Event = RunnerEvent
 
 
 class ClaudeRunner(BaseRunner):
