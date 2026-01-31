@@ -362,7 +362,7 @@ def init_db() -> sqlite3.Connection:
             opencode_session_id TEXT,
             active_engine TEXT DEFAULT 'opencode',
             opencode_agent TEXT DEFAULT 'bridge',
-            model_id TEXT DEFAULT 'glm_vllm/glm-4.7-flash',
+            model_id TEXT DEFAULT 'glm_vllm/glm-4.7-flash-heretic.Q8_0.gguf',
             reasoning_mode TEXT DEFAULT 'high',
             tmux_name TEXT,
             created_at TEXT NOT NULL,
@@ -405,7 +405,7 @@ def init_db() -> sqlite3.Connection:
         ("opencode_session_id", "TEXT"),
         ("active_engine", "TEXT DEFAULT 'opencode'"),
         ("opencode_agent", "TEXT DEFAULT 'bridge'"),
-        ("model_id", f"TEXT DEFAULT '{OPENCODE_MODEL_GPT}'"),
+        ("model_id", f"TEXT DEFAULT '{OPENCODE_MODEL_DEFAULT}'"),
         ("reasoning_mode", "TEXT DEFAULT 'high'"),
     ]
     for col_name, col_type in migrations:
