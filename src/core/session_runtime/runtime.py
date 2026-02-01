@@ -97,6 +97,52 @@ class SessionRuntime:
         self._ralph_stop_requested = False
         self._ralph_wake = asyncio.Event()
 
+        # Per-engine cumulative usage for the lifetime of this Switch session.
+        # This reflects total tokens/cost used, regardless of remote session resets.
+        self._usage_tokens_total: dict[str, int] = {"opencode": 0, "claude": 0}
+        self._usage_cost_total: dict[str, float] = {"opencode": 0.0, "claude": 0.0}
+        self._last_remote_session_id: dict[str, str | None] = {"opencode": None, "claude": None}
+
+    def _remember_remote_session_id(self, engine: str, session_id: str | None) -> None:
+        if not engine or not session_id:
+            return
+        self._last_remote_session_id[engine] = session_id
+
+    def _extract_run_tokens(self, engine: str, stats: dict) -> int:
+        """Best-effort: normalize a per-run token count across engines."""
+        if engine == "claude":
+            t = stats.get("tokens_total")
+            return int(t) if isinstance(t, (int, float)) else 0
+
+        # OpenCode emits several categories; treat them as additive.
+        total = 0
+        for k in (
+            "tokens_in",
+            "tokens_out",
+            "tokens_reasoning",
+            "tokens_cache_read",
+            "tokens_cache_write",
+        ):
+            v = stats.get(k)
+            if isinstance(v, (int, float)):
+                total += int(v)
+        return total
+
+    def _update_usage_totals(self, engine: str, stats: dict) -> None:
+        tokens = self._extract_run_tokens(engine, stats)
+        if tokens > 0:
+            self._usage_tokens_total[engine] = int(self._usage_tokens_total.get(engine, 0)) + tokens
+
+        cost = stats.get("cost_usd")
+        if isinstance(cost, (int, float)) and cost:
+            self._usage_cost_total[engine] = float(self._usage_cost_total.get(engine, 0.0)) + float(cost)
+
+    def _format_session_tokens_suffix(self, engine: str) -> str:
+        total = int(self._usage_tokens_total.get(engine, 0) or 0)
+        if total >= 1000:
+            return f"sess {total/1000.0:.1f}k tok"
+        return f"sess {total} tok"
+
     def ensure_running(self) -> None:
         if self.shutting_down:
             return
@@ -163,7 +209,11 @@ class SessionRuntime:
             cancelled_any = True
             self.runner.cancel()
 
-        if self._ralph_status and self._ralph_status.status in {"queued", "running", "stopping"}:
+        if self._ralph_status and self._ralph_status.status in {
+            "queued",
+            "running",
+            "stopping",
+        }:
             cancelled_any = True
             self._ralph_stop_requested = True
             self._ralph_wake.set()
@@ -187,7 +237,10 @@ class SessionRuntime:
 
     def request_ralph_stop(self) -> bool:
         """Ask Ralph to stop after the current iteration."""
-        if not self._ralph_status or self._ralph_status.status not in {"queued", "running"}:
+        if not self._ralph_status or self._ralph_status.status not in {
+            "queued",
+            "running",
+        }:
             return False
         self._ralph_stop_requested = True
         self._ralph_status.status = "stopping"
@@ -308,9 +361,13 @@ class SessionRuntime:
         self._sessions.update_last_active(self.session_name)
 
         body_for_history = self._prompt.augment_prompt(item.body, item.attachments)
-        self._history.append_to_history(body_for_history, self.working_dir, session.claude_session_id)
+        self._history.append_to_history(
+            body_for_history, self.working_dir, session.claude_session_id
+        )
         self._history.log_activity(item.body, session=self.session_name, source="xmpp")
-        self._messages.add(self.session_name, "user", body_for_history, session.active_engine)
+        self._messages.add(
+            self.session_name, "user", body_for_history, session.active_engine
+        )
 
         if not item.trigger_response:
             return
@@ -325,7 +382,11 @@ class SessionRuntime:
             self._run_task = None
 
     def _ralph_save(self, status: str) -> None:
-        if not self._ralph_loops or not self._ralph_status or not self._ralph_status.loop_id:
+        if (
+            not self._ralph_loops
+            or not self._ralph_status
+            or not self._ralph_status.loop_id
+        ):
             return
         self._ralph_loops.update_progress(
             self._ralph_status.loop_id,
@@ -360,9 +421,13 @@ class SessionRuntime:
             except Exception:
                 pass
 
-        promise_str = f'"{cfg.completion_promise}"' if cfg.completion_promise else "none"
+        promise_str = (
+            f'"{cfg.completion_promise}"' if cfg.completion_promise else "none"
+        )
         wait_minutes = float(cfg.wait_seconds or 0.0) / 60.0
-        max_str = str(cfg.max_iterations) if (cfg.max_iterations or 0) > 0 else "unlimited"
+        max_str = (
+            str(cfg.max_iterations) if (cfg.max_iterations or 0) > 0 else "unlimited"
+        )
         await self._emit(
             OutboundMessage(
                 "Ralph loop started\n"
@@ -404,6 +469,15 @@ class SessionRuntime:
                 self._ralph_status.current_iteration += 1
                 self._ralph_save("running")
 
+                # Re-read session state each iteration so model/engine changes apply.
+                session = self._sessions.get(self.session_name)
+                if not session:
+                    self._ralph_status.status = "error"
+                    self._ralph_status.error = "Session not found"
+                    await self._emit(OutboundMessage("Session not found in database."))
+                    self._ralph_save("error")
+                    return
+
                 result = await self._run_ralph_iteration(cfg, session)
                 if result.error:
                     self._ralph_status.status = "error"
@@ -430,7 +504,10 @@ class SessionRuntime:
                     )
                 )
 
-                if cfg.completion_promise and f"<promise>{cfg.completion_promise}</promise>" in result.text:
+                if (
+                    cfg.completion_promise
+                    and f"<promise>{cfg.completion_promise}</promise>" in result.text
+                ):
                     self._ralph_status.status = "completed"
                     await self._emit(
                         OutboundMessage(
@@ -445,7 +522,9 @@ class SessionRuntime:
                 self._ralph_save("running")
                 if cfg.wait_seconds and cfg.wait_seconds > 0:
                     try:
-                        await asyncio.wait_for(self._ralph_wake.wait(), timeout=cfg.wait_seconds)
+                        await asyncio.wait_for(
+                            self._ralph_wake.wait(), timeout=cfg.wait_seconds
+                        )
                     except asyncio.TimeoutError:
                         pass
                     finally:
@@ -463,42 +542,96 @@ class SessionRuntime:
         error: str | None = None
 
     def _build_ralph_prompt(self, cfg: RalphConfig, iteration: int) -> str:
-        iter_info = f"[Ralph iteration {iteration}"
-        if cfg.max_iterations and cfg.max_iterations > 0:
-            iter_info += f"/{cfg.max_iterations}"
-        iter_info += "]"
+        # Ralph loop orchestration is out-of-band: do not inject loop metadata
+        # into the model prompt. Users want the exact prompt they wrote.
+        return cfg.prompt
 
-        prompt = f"{iter_info}\n\n{cfg.prompt}"
-        if cfg.completion_promise:
-            prompt += (
-                f"\n\nTo signal completion, output EXACTLY: "
-                f"<promise>{cfg.completion_promise}</promise>\n"
-                "ONLY output this when the task is genuinely complete."
-            )
-        return prompt
-
-    async def _run_ralph_iteration(self, cfg: RalphConfig, session: SessionState) -> "SessionRuntime._RalphIterationResult":
+    async def _run_ralph_iteration(
+        self, cfg: RalphConfig, session: SessionState
+    ) -> "SessionRuntime._RalphIterationResult":
         result = SessionRuntime._RalphIterationResult()
-        engine = (cfg.force_engine or "claude").strip().lower()
-        if engine != "claude":
-            engine = "claude"
-
-        self.runner = self._runner_factory.create(
-            engine,
-            working_dir=self.working_dir,
-            output_dir=self.output_dir,
-            session_name=self.session_name,
+        engine = (
+            (cfg.force_engine or session.active_engine or "opencode").strip().lower()
         )
+        if engine not in {"claude", "opencode"}:
+            engine = "opencode"
 
-        prompt = self._build_ralph_prompt(cfg, self._ralph_status.current_iteration if self._ralph_status else 1)
+        tool_summaries: list[str] = []
+        last_progress_at = 0
+
+        if engine == "opencode":
+            question_callback = self._create_question_callback()
+            self.runner = self._runner_factory.create(
+                "opencode",
+                working_dir=self.working_dir,
+                output_dir=self.output_dir,
+                session_name=self.session_name,
+                opencode_config=OpenCodeConfig(
+                    model=session.model_id,
+                    reasoning_mode=session.reasoning_mode,
+                    agent=session.opencode_agent,
+                    question_callback=question_callback,
+                ),
+            )
+        else:
+            self.runner = self._runner_factory.create(
+                "claude",
+                working_dir=self.working_dir,
+                output_dir=self.output_dir,
+                session_name=self.session_name,
+            )
+
+        prompt = self._build_ralph_prompt(
+            cfg, self._ralph_status.current_iteration if self._ralph_status else 1
+        )
         try:
-            async for event_type, content in self.runner.run(prompt, session.claude_session_id):
+            session_id = (
+                session.opencode_session_id
+                if engine == "opencode"
+                else session.claude_session_id
+            )
+            accumulated = ""
+            async for event_type, content in self.runner.run(prompt, session_id):
                 if event_type == "session_id" and isinstance(content, str) and content:
-                    self._sessions.update_claude_session_id(self.session_name, content)
+                    if engine == "opencode":
+                        self._sessions.update_opencode_session_id(
+                            self.session_name, content
+                        )
+                    else:
+                        self._sessions.update_claude_session_id(
+                            self.session_name, content
+                        )
                 elif event_type == "text" and isinstance(content, str):
-                    result.text = content
-                elif event_type == "tool":
+                    if engine == "opencode":
+                        accumulated += content
+                        result.text = accumulated
+                    else:
+                        result.text = content
+                elif event_type == "tool" and isinstance(content, str):
                     result.tool_count += 1
+                    tool_summaries.append(content)
+
+                    is_bash = content.startswith("[tool:bash")
+                    if is_bash or len(tool_summaries) == 1:
+                        last_progress_at = len(tool_summaries)
+                        await self._emit(
+                            OutboundMessage(
+                                f"... {content}",
+                                meta_type="tool",
+                                meta_tool=self._infer_meta_tool_from_summary(content),
+                            )
+                        )
+                    elif len(tool_summaries) - last_progress_at >= 8:
+                        last_progress_at = len(tool_summaries)
+                        await self._emit(
+                            OutboundMessage(
+                                f"... {' '.join(tool_summaries[-3:])}",
+                                meta_type="tool",
+                                meta_tool=self._infer_meta_tool_from_summary(
+                                    tool_summaries[-1]
+                                ),
+                            )
+                        )
                 elif event_type == "result" and isinstance(content, dict):
                     cost = content.get("cost_usd")
                     if isinstance(cost, (int, float)):
@@ -515,7 +648,9 @@ class SessionRuntime:
             self.runner = None
         return result
 
-    async def _run_engine(self, *, engine: str, session: SessionState, prompt: str) -> None:
+    async def _run_engine(
+        self, *, engine: str, session: SessionState, prompt: str
+    ) -> None:
         if engine == "claude":
             await self._run_claude(session, prompt)
             return
@@ -536,7 +671,9 @@ class SessionRuntime:
         tool_summaries: list[str] = []
         last_progress_at = 0
 
-        async for event_type, content in self.runner.run(prompt, session.claude_session_id):
+        async for event_type, content in self.runner.run(
+            prompt, session.claude_session_id
+        ):
             if self.shutting_down:
                 return
 
@@ -556,7 +693,9 @@ class SessionRuntime:
                         )
                     )
             elif event_type == "result":
-                await self._send_result(tool_summaries, response_parts, content, engine="claude")
+                await self._send_result(
+                    tool_summaries, response_parts, content, engine="claude"
+                )
             elif event_type == "error":
                 await self._emit(OutboundMessage(f"Error: {content}"))
             elif event_type == "cancelled":
@@ -582,7 +721,9 @@ class SessionRuntime:
         accumulated = ""
         last_progress_at = 0
 
-        async for event_type, content in self.runner.run(prompt, session.opencode_session_id):
+        async for event_type, content in self.runner.run(
+            prompt, session.opencode_session_id
+        ):
             if self.shutting_down:
                 return
 
@@ -609,14 +750,18 @@ class SessionRuntime:
                         OutboundMessage(
                             f"... {' '.join(tool_summaries[-3:])}",
                             meta_type="tool",
-                            meta_tool=self._infer_meta_tool_from_summary(tool_summaries[-1]),
+                            meta_tool=self._infer_meta_tool_from_summary(
+                                tool_summaries[-1]
+                            ),
                         )
                     )
             elif event_type == "question" and isinstance(content, Question):
                 # The runner handles question flow via the callback.
                 pass
             elif event_type == "result":
-                await self._send_result(tool_summaries, response_parts, content, engine="opencode")
+                await self._send_result(
+                    tool_summaries, response_parts, content, engine="opencode"
+                )
             elif event_type == "error":
                 await self._emit(OutboundMessage(f"Error: {content}"))
             elif event_type == "cancelled":
@@ -642,8 +787,47 @@ class SessionRuntime:
         meta_type = None
         meta_attrs: dict[str, str] | None = None
         if isinstance(stats, dict):
+            # Keep stats meta small: the message body already contains the text.
+            # Large attrs can cause transport/UI issues.
+            allowed = {
+                "engine",
+                "model",
+                "session_id",
+                "turns",
+                "tool_count",
+                "tokens_in",
+                "tokens_out",
+                "tokens_reasoning",
+                "tokens_cache_read",
+                "tokens_cache_write",
+                "tokens_total",
+                "context_window",
+                "cost_usd",
+                "duration_s",
+                "summary",
+            }
+
+            # Remember remote session ID (informational only; totals are lifetime).
+            sid = stats.get("session_id") if isinstance(stats.get("session_id"), str) else None
+            self._remember_remote_session_id(engine, sid)
+            self._update_usage_totals(engine, stats)
+
+            # Expose cumulative totals to the UI.
+            stats = dict(stats)
+            stats["session_tokens_total"] = int(self._usage_tokens_total.get(engine, 0) or 0)
+            stats["session_cost_total"] = float(self._usage_cost_total.get(engine, 0.0) or 0.0)
+
+            summary = stats.get("summary")
+            if isinstance(summary, str) and summary:
+                # Append a stable running token total.
+                stats["summary"] = summary.rstrip() + " | " + self._format_session_tokens_suffix(engine)
+
             meta_type = "run-stats"
-            meta_attrs = {str(k): str(v) for k, v in stats.items() if v is not None}
+            meta_attrs = {
+                str(k): str(v)
+                for k, v in stats.items()
+                if (k in allowed or k.startswith("session_")) and v is not None
+            }
 
         await self._emit(
             OutboundMessage(
@@ -659,7 +843,9 @@ class SessionRuntime:
             engine,
         )
 
-    def _create_question_callback(self) -> Callable[[Question], Awaitable[list[list[str]]]]:
+    def _create_question_callback(
+        self,
+    ) -> Callable[[Question], Awaitable[list[list[str]]]]:
         async def question_callback(question: Question) -> list[list[str]]:
             question_text = self._format_question(question)
             await self._emit(
@@ -688,14 +874,18 @@ class SessionRuntime:
                 answer = await asyncio.wait_for(fut, timeout=300)
                 return self._parse_question_answer(question, answer)
             except asyncio.TimeoutError:
-                await self._emit(OutboundMessage("[Question timed out - proceeding without answer]"))
+                await self._emit(
+                    OutboundMessage("[Question timed out - proceeding without answer]")
+                )
                 raise
             finally:
                 self._pending_question_answers.pop(question.request_id, None)
 
         return question_callback
 
-    def _parse_question_answer(self, question: Question, answer: object) -> list[list[str]]:
+    def _parse_question_answer(
+        self, question: Question, answer: object
+    ) -> list[list[str]]:
         if isinstance(answer, list):
             return answer  # type: ignore[return-value]
 
@@ -714,7 +904,11 @@ class SessionRuntime:
 
         answers: list[list[str]] = []
         for idx, q in enumerate(qs):
-            seg = segments[idx] if idx < len(segments) else (segments[0] if segments else "")
+            seg = (
+                segments[idx]
+                if idx < len(segments)
+                else (segments[0] if segments else "")
+            )
             options = q.get("options") if isinstance(q, dict) else None
             if not isinstance(options, list) or not options:
                 answers.append([seg] if seg else [])
@@ -742,7 +936,9 @@ class SessionRuntime:
                     if 1 <= n <= len(labels):
                         chosen.append(labels[n - 1])
                     continue
-                match = next((lab for lab in labels if lab.lower() == tok.lower()), None)
+                match = next(
+                    (lab for lab in labels if lab.lower() == tok.lower()), None
+                )
                 if match:
                     chosen.append(match)
 
@@ -774,7 +970,9 @@ class SessionRuntime:
                 for i, opt in enumerate(options, 1):
                     if not isinstance(opt, dict):
                         continue
-                    label = str(opt.get("label", f"Option {i}") or f"Option {i}").strip()
+                    label = str(
+                        opt.get("label", f"Option {i}") or f"Option {i}"
+                    ).strip()
                     desc = str(opt.get("description", "") or "").strip()
                     parts.append(f"  {i}) {label}" + (f" - {desc}" if desc else ""))
 

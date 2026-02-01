@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 
     from src.db import Session
     from src.manager import SessionManager
+
+
 class SessionBot(BaseXMPPBot):
     """XMPP bot for a single session."""
 
@@ -183,14 +185,18 @@ class SessionBot(BaseXMPPBot):
             )
 
     class _HistoryAdapter(HistoryPort):
-        def append_to_history(self, message: str, working_dir: str, claude_session_id: str | None) -> None:
+        def append_to_history(
+            self, message: str, working_dir: str, claude_session_id: str | None
+        ) -> None:
             append_to_history(message, working_dir, claude_session_id)
 
         def log_activity(self, message: str, *, session: str, source: str) -> None:
             log_activity(message, session=session, source=source)
 
     class _PromptAdapter(AttachmentPromptPort):
-        def augment_prompt(self, body: str, attachments: list[Attachment] | None) -> str:
+        def augment_prompt(
+            self, body: str, attachments: list[Attachment] | None
+        ) -> str:
             if not attachments:
                 return (body or "").strip()
             lines: list[str] = [(body or "").strip(), "", "User attached image(s):"]
@@ -424,7 +430,9 @@ class SessionBot(BaseXMPPBot):
     # -------------------------------------------------------------------------
 
     async def on_message(self, msg):
-        await self.guard(self._handle_session_message(msg), context="session.on_message")
+        await self.guard(
+            self._handle_session_message(msg), context="session.on_message"
+        )
 
     async def _handle_session_message(self, msg):
         if msg["type"] not in ("chat", "normal"):
@@ -438,7 +446,9 @@ class SessionBot(BaseXMPPBot):
         if sender not in (self.xmpp_recipient, dispatcher_jid):
             return
 
-        meta_type, meta_attrs, meta_payload = extract_switch_meta(msg, meta_ns=SWITCH_META_NS)
+        meta_type, meta_attrs, meta_payload = extract_switch_meta(
+            msg, meta_ns=SWITCH_META_NS
+        )
 
         # Allow meta-only messages (e.g., button-based question replies).
         body = (msg["body"] or "").strip()
@@ -447,7 +457,9 @@ class SessionBot(BaseXMPPBot):
         attachments: list[Attachment] = []
         urls = extract_attachment_urls(msg, body)
         if urls:
-            attachments = await self.attachment_store.download_images(self.session_name, urls)
+            attachments = await self.attachment_store.download_images(
+                self.session_name, urls
+            )
             if attachments:
                 self._send_attachment_meta(attachments)
                 body = strip_urls_from_body(body, urls)
@@ -494,7 +506,12 @@ class SessionBot(BaseXMPPBot):
             return
 
         # If we're busy, allow +spawn to fork work instead of queuing it.
-        if self.processing and (not is_scheduled) and body.startswith("+") and self.manager:
+        if (
+            self.processing
+            and (not is_scheduled)
+            and body.startswith("+")
+            and self.manager
+        ):
             await self.spawn_sibling_session(body[1:].strip())
             return
 
@@ -570,7 +587,9 @@ class SessionBot(BaseXMPPBot):
             meta_tool="bash",
         )
 
-        context_msg = f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
+        context_msg = (
+            f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
+        )
         await self.process_message(context_msg, trigger_response=False)
 
     async def peek_output(self, num_lines: int = 30):
@@ -633,7 +652,9 @@ class SessionBot(BaseXMPPBot):
             wait=True,
         )
 
-    def answer_pending_question(self, answer: object, *, request_id: str | None = None) -> bool:
+    def answer_pending_question(
+        self, answer: object, *, request_id: str | None = None
+    ) -> bool:
         """Answer a pending OpenCode question via XMPP meta reply."""
         return self._runtime.answer_question(answer, request_id=request_id)
 

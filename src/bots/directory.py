@@ -187,7 +187,11 @@ class DirectoryBot(BaseXMPPBot):
                 payload=payload,
             )
         except IqTimeout:
-            self.log.warning("PubSub publish timed out (node=%s service=%s)", node, self.pubsub_service_jid)
+            self.log.warning(
+                "PubSub publish timed out (node=%s service=%s)",
+                node,
+                self.pubsub_service_jid,
+            )
         except IqError as exc:
             try:
                 condition = exc.iq["error"]["condition"]

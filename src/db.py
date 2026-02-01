@@ -245,7 +245,9 @@ class RalphLoopRepository:
             prompt=row["prompt"],
             completion_promise=row["completion_promise"],
             max_iterations=row["max_iterations"] or 0,
-            wait_seconds=row["wait_seconds"] if row["wait_seconds"] is not None else 2.0,
+            wait_seconds=row["wait_seconds"]
+            if row["wait_seconds"] is not None
+            else 2.0,
             current_iteration=row["current_iteration"] or 0,
             total_cost=row["total_cost"] or 0.0,
             status=row["status"] or "running",

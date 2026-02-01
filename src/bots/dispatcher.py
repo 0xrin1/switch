@@ -24,7 +24,7 @@ class DispatcherBot(BaseXMPPBot):
 
     Each dispatcher is tied to a specific engine/agent:
     - cc: Claude Code
-    - oc: OpenCode with GLM 4.7 (bridge agent)
+    - oc: OpenCode with GLM 4.7 Heretic (bridge agent)
     - oc-gpt: OpenCode with GPT 5.2 (bridge-gpt agent)
     - oc-glm-zen: OpenCode with GLM 4.7 via Zen (bridge-zen agent)
     - oc-gpt-or: OpenCode with GPT 5.2 via OpenRouter (bridge-gpt-or agent)
@@ -44,7 +44,7 @@ class DispatcherBot(BaseXMPPBot):
         *,
         engine: str = "opencode",
         opencode_agent: str | None = "bridge",
-        label: str = "GLM 4.7",
+        label: str = "GLM 4.7 Heretic",
     ):
         super().__init__(jid, password)
         # Initialize logger early because Slixmpp can deliver stanzas before
@@ -222,7 +222,7 @@ class DispatcherBot(BaseXMPPBot):
             working_dir=working_dir,
             output_dir=Path(self.working_dir) / "output",
             opencode_config=OpenCodeConfig(
-                model="glm_vllm/glm-4.7-flash",
+                model="glm_vllm/glm-4.7-flash-heretic.Q8_0.gguf",
                 agent="bridge",
             ),
         )
@@ -251,7 +251,7 @@ class DispatcherBot(BaseXMPPBot):
             f"Send any message to start a new {self.label} session.\n\n"
             "Orchestrators:\n"
             "  cc@ - Claude Code\n"
-            "  oc@ - OpenCode (GLM 4.7)\n"
+            "  oc@ - OpenCode (GLM 4.7 Heretic)\n"
             "  oc-gpt@ - OpenCode (GPT 5.2)\n"
             "  oc-glm-zen@ - OpenCode (GLM 4.7 Zen)\n"
             "  oc-gpt-or@ - OpenCode (GPT 5.2 OpenRouter)\n\n"

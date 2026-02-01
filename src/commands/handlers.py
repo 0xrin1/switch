@@ -191,7 +191,9 @@ class CommandHandler:
         """Show Ralph loop status."""
         live = self.bot.session.get_ralph_status()
         if live and live.status in {"queued", "running", "stopping"}:
-            max_str = str(live.max_iterations) if live.max_iterations > 0 else "unlimited"
+            max_str = (
+                str(live.max_iterations) if live.max_iterations > 0 else "unlimited"
+            )
             wait_minutes = float(live.wait_seconds or 0.0) / 60.0
             self.bot.send_reply(
                 f"Ralph {live.status.upper()}\n"
@@ -237,7 +239,9 @@ class CommandHandler:
             return True
 
         if self.bot.processing or self.bot.session.pending_count() > 0:
-            self.bot.send_reply("Already running or queued. Use /ralph-cancel (or /cancel) first.")
+            self.bot.send_reply(
+                "Already running or queued. Use /ralph-cancel (or /cancel) first."
+            )
             return True
 
         await self.bot.session.start_ralph(
@@ -246,7 +250,6 @@ class CommandHandler:
                 max_iterations=int(ralph_args["max_iterations"] or 0),
                 completion_promise=ralph_args["completion_promise"],
                 wait_seconds=float(ralph_args["wait_minutes"] or 0.0) * 60.0,
-                force_engine="claude",
             )
         )
         return True
