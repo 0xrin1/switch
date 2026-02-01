@@ -96,6 +96,7 @@ class SessionRuntime:
         self._ralph_status: RalphStatus | None = None
         self._ralph_stop_requested = False
         self._ralph_wake = asyncio.Event()
+        self._ralph_injected_prompt: str | None = None
 
         # Per-engine cumulative usage for the lifetime of this Switch session.
         # This reflects total tokens/cost used, regardless of remote session resets.
@@ -244,6 +245,21 @@ class SessionRuntime:
             return False
         self._ralph_stop_requested = True
         self._ralph_status.status = "stopping"
+        self._ralph_wake.set()
+        return True
+
+    def inject_ralph_prompt(self, prompt: str) -> bool:
+        """Inject a user prompt into the running Ralph loop.
+
+        The injected prompt will be used for the current iteration continuation,
+        waking the loop immediately if it's in the wait period.
+        Returns True if injection was accepted (Ralph is running).
+        """
+        if not self._ralph_status or self._ralph_status.status not in {
+            "running",
+        }:
+            return False
+        self._ralph_injected_prompt = prompt
         self._ralph_wake.set()
         return True
 
@@ -529,6 +545,81 @@ class SessionRuntime:
                         pass
                     finally:
                         self._ralph_wake.clear()
+
+                # Check for injected prompt (user message during Ralph).
+                # This counts as a continuation of the current iteration, not a new one.
+                if self._ralph_injected_prompt:
+                    injected = self._ralph_injected_prompt
+                    self._ralph_injected_prompt = None
+
+                    # Re-read session state for the continuation.
+                    session = self._sessions.get(self.session_name)
+                    if not session:
+                        self._ralph_status.status = "error"
+                        self._ralph_status.error = "Session not found"
+                        await self._emit(OutboundMessage("Session not found in database."))
+                        self._ralph_save("error")
+                        return
+
+                    await self._emit(
+                        OutboundMessage(f"[Ralph inject] {injected[:100]}...")
+                    )
+
+                    result = await self._run_ralph_iteration(
+                        cfg, session, prompt_override=injected
+                    )
+                    if result.error:
+                        self._ralph_status.status = "error"
+                        self._ralph_status.error = result.error
+                        await self._emit(
+                            OutboundMessage(
+                                f"Ralph error during inject: {result.error}\n"
+                                f"Stopping. Total cost: ${self._ralph_status.total_cost:.3f}"
+                            )
+                        )
+                        self._ralph_save("error")
+                        return
+
+                    self._ralph_status.total_cost += float(result.cost)
+                    preview = result.text[:200] + ("..." if len(result.text) > 200 else "")
+                    iter_str = (
+                        f"{self._ralph_status.current_iteration}/{cfg.max_iterations}"
+                        if cfg.max_iterations and cfg.max_iterations > 0
+                        else str(self._ralph_status.current_iteration)
+                    )
+                    await self._emit(
+                        OutboundMessage(
+                            f"[Ralph {iter_str}+ | {result.tool_count}tools ${result.cost:.3f}]\n\n{preview}"
+                        )
+                    )
+
+                    # Check for completion promise in injected response too.
+                    if (
+                        cfg.completion_promise
+                        and f"<promise>{cfg.completion_promise}</promise>" in result.text
+                    ):
+                        self._ralph_status.status = "completed"
+                        await self._emit(
+                            OutboundMessage(
+                                f"Ralph COMPLETE at iteration {self._ralph_status.current_iteration}\n"
+                                f"Detected: <promise>{cfg.completion_promise}</promise>\n"
+                                f"Total cost: ${self._ralph_status.total_cost:.3f}"
+                            )
+                        )
+                        self._ralph_save("completed")
+                        return
+
+                    # Apply wait after injection too.
+                    self._ralph_save("running")
+                    if cfg.wait_seconds and cfg.wait_seconds > 0:
+                        try:
+                            await asyncio.wait_for(
+                                self._ralph_wake.wait(), timeout=cfg.wait_seconds
+                            )
+                        except asyncio.TimeoutError:
+                            pass
+                        finally:
+                            self._ralph_wake.clear()
         finally:
             if self._ralph_status and self._ralph_status.status == "running":
                 self._ralph_status.status = "finished"
@@ -547,7 +638,7 @@ class SessionRuntime:
         return cfg.prompt
 
     async def _run_ralph_iteration(
-        self, cfg: RalphConfig, session: SessionState
+        self, cfg: RalphConfig, session: SessionState, *, prompt_override: str | None = None
     ) -> "SessionRuntime._RalphIterationResult":
         result = SessionRuntime._RalphIterationResult()
         engine = (
@@ -581,7 +672,7 @@ class SessionRuntime:
                 session_name=self.session_name,
             )
 
-        prompt = self._build_ralph_prompt(
+        prompt = prompt_override or self._build_ralph_prompt(
             cfg, self._ralph_status.current_iteration if self._ralph_status else 1
         )
         try:

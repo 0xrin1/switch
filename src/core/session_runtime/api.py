@@ -68,6 +68,8 @@ class SessionPort(Protocol):
 
     def get_ralph_status(self) -> RalphStatus | None: ...
 
+    def inject_ralph_prompt(self, prompt: str) -> bool: ...
+
 
 # -----------------
 # Event boundary

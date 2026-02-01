@@ -501,6 +501,11 @@ class SessionBot(BaseXMPPBot):
             self.log.info(f"Answered pending question with: {body[:50]}...")
             return
 
+        # If Ralph is running, inject the message instead of queuing.
+        if not is_scheduled and self._runtime.inject_ralph_prompt(body):
+            self.log.info(f"Injected into Ralph: {body[:50]}...")
+            return
+
         # Scheduled messages are best-effort; drop them if we're already running.
         if is_scheduled and self.processing:
             return
