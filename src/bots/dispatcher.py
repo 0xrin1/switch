@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Callable, Coroutine
 
 from src.db import SessionRepository
 from src.lifecycle.sessions import create_session as lifecycle_create_session
+from src.ralph import parse_ralph_command
 from src.runners import create_runner
 from src.runners.opencode.config import OpenCodeConfig
 from src.utils import BaseXMPPBot
@@ -271,13 +272,36 @@ class DispatcherBot(BaseXMPPBot):
         We support running /ralph from the dispatcher because users often want to
         kick off long loops from their "home" contact, not an already-open session.
         """
-        if not arg.strip():
+        raw_arg = arg.strip()
+        if not raw_arg:
             self.send_reply(
                 "Usage: /ralph <prompt/args>\n"
-                "Example: /ralph 10 Refactor auth --wait 5 --done 'All tests pass'",
+                "Example: /ralph 10 Refactor auth --wait 5 --done 'All tests pass'\n"
+                "Swarm:   /ralph Refactor auth --max 10 --swarm 5",
                 recipient=self.xmpp_recipient,
             )
             return
+
+        parsed = parse_ralph_command(f"/ralph {raw_arg}")
+        if parsed is None:
+            self.send_reply(
+                "Usage: /ralph <prompt/args>\n"
+                "Example: /ralph 10 Refactor auth --wait 5 --done 'All tests pass'\n"
+                "Swarm:   /ralph Refactor auth --max 10 --swarm 5",
+                recipient=self.xmpp_recipient,
+            )
+            return
+
+        swarm = int(parsed.get("swarm") or 1)
+        forward_args = (parsed.get("forward_args") or raw_arg).strip()
+
+        MAX_SWARM = 50
+        if swarm > MAX_SWARM:
+            swarm = MAX_SWARM
+            self.send_reply(
+                f"Clamped --swarm to {MAX_SWARM} for safety.",
+                recipient=self.xmpp_recipient,
+            )
 
         if not self.manager:
             self.send_reply(
@@ -289,36 +313,56 @@ class DispatcherBot(BaseXMPPBot):
         # Create the session first, then invoke the /ralph command via the session
         # command handler. (Directly enqueuing "/ralph ..." as a normal message
         # would send it to the model instead of starting the Ralph loop.)
-        created_name = await lifecycle_create_session(
-            self.manager,
-            "",
-            engine=self.engine,
-            opencode_agent=self.opencode_agent,
-            label=self.label,
-            name_hint="ralph",
-            announce="Ralph session '{name}' ({label}). Starting loop...",
-            dispatcher_jid=str(self.boundjid.bare),
-        )
-        if not created_name:
-            self.send_reply(
-                "Failed to create Ralph session", recipient=self.xmpp_recipient
-            )
-            return
 
-        bot = self.manager.session_bots.get(created_name)
-        if not bot:
+        async def _start_one() -> str | None:
+            created_name = await lifecycle_create_session(
+                self.manager,
+                "",
+                engine=self.engine,
+                opencode_agent=self.opencode_agent,
+                label=self.label,
+                name_hint="ralph",
+                announce="Ralph session '{name}' ({label}). Starting loop...",
+                dispatcher_jid=str(self.boundjid.bare),
+            )
+            if not created_name:
+                return None
+            bot = self.manager.session_bots.get(created_name)
+            if not bot:
+                return None
+            await bot.commands.handle(f"/ralph {forward_args}")
+            return created_name
+
+        if swarm <= 1:
+            created = await _start_one()
+            if not created:
+                self.send_reply(
+                    "Failed to create Ralph session", recipient=self.xmpp_recipient
+                )
+                return
             self.send_reply(
-                f"Started {created_name}@{self.xmpp_domain}, but bot not found",
+                f"Started Ralph in {created}@{self.xmpp_domain}",
                 recipient=self.xmpp_recipient,
             )
             return
 
-        await bot.commands.handle(f"/ralph {arg.strip()}")
+        names: list[str] = []
+        for _ in range(swarm):
+            created = await _start_one()
+            if created:
+                names.append(created)
 
-        self.send_reply(
-            f"Started Ralph in {created_name}@{self.xmpp_domain}",
-            recipient=self.xmpp_recipient,
-        )
+        if not names:
+            self.send_reply(
+                "Failed to create Ralph swarm sessions", recipient=self.xmpp_recipient
+            )
+            return
+
+        lines = [
+            f"Started Ralph swarm x{len(names)}:",
+            *[f"  {n}@{self.xmpp_domain}" for n in names],
+        ]
+        self.send_reply("\n".join(lines), recipient=self.xmpp_recipient)
 
     async def create_session(self, first_message: str):
         """Create a new session."""

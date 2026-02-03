@@ -30,7 +30,7 @@ def parse_ralph_command(body: str) -> dict | None:
         /ralph <N> <prompt>  (shorthand)
         /ralph <prompt>  (infinite - dangerous!)
 
-    Returns dict with: prompt, max_iterations, completion_promise, wait_minutes, prompt_only
+    Returns dict with: prompt, max_iterations, completion_promise, wait_minutes, prompt_only, swarm
     """
     if not body.lower().startswith("/ralph"):
         return None
@@ -51,6 +51,38 @@ def parse_ralph_command(body: str) -> dict | None:
         for p in parts
     ]
 
+    # Optional: /ralph ... --swarm N
+    # This is primarily consumed by dispatcher/session command handlers which
+    # fan out into multiple sessions. We strip it from the forwarded args so it
+    # doesn't end up in the prompt.
+    swarm = 1
+    cleaned_parts: list[str] = []
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        if part in ("--swarm", "--parallel") and i + 1 < len(parts):
+            try:
+                swarm = max(1, int(parts[i + 1]))
+                i += 2
+                continue
+            except ValueError:
+                pass
+        elif part.startswith("--swarm=") or part.startswith("--parallel="):
+            try:
+                swarm = max(1, int(part.split("=", 1)[1]))
+                i += 1
+                continue
+            except ValueError:
+                pass
+        cleaned_parts.append(part)
+        i += 1
+
+    # shlex.join preserves quoting; fallback keeps spaces sane.
+    try:
+        forward_args = shlex.join(cleaned_parts)
+    except AttributeError:  # pragma: no cover (py<3.8)
+        forward_args = " ".join(cleaned_parts)
+
     max_iterations = 0
     completion_promise = None
     wait_minutes = 2.0 / 60.0
@@ -58,15 +90,15 @@ def parse_ralph_command(body: str) -> dict | None:
     prompt_parts = []
 
     i = 0
-    while i < len(parts):
-        part = parts[i]
+    while i < len(cleaned_parts):
+        part = cleaned_parts[i]
         if part in ("--look", "--prompt-only", "--promptonly", "--stateless", "--isolated"):
             prompt_only = True
             i += 1
             continue
-        if part in ("--max", "--max-iterations", "-m") and i + 1 < len(parts):
+        if part in ("--max", "--max-iterations", "-m") and i + 1 < len(cleaned_parts):
             try:
-                max_iterations = int(parts[i + 1])
+                max_iterations = int(cleaned_parts[i + 1])
                 i += 2
                 continue
             except ValueError:
@@ -78,17 +110,17 @@ def parse_ralph_command(body: str) -> dict | None:
                 continue
             except ValueError:
                 pass
-        elif part in ("--done", "--completion-promise", "-d") and i + 1 < len(parts):
-            completion_promise = parts[i + 1]
+        elif part in ("--done", "--completion-promise", "-d") and i + 1 < len(cleaned_parts):
+            completion_promise = cleaned_parts[i + 1]
             i += 2
             continue
         elif part.startswith("--done=") or part.startswith("--completion-promise="):
             completion_promise = part.split("=", 1)[1]
             i += 1
             continue
-        elif part in ("--wait", "--wait-min", "--wait-minutes", "--interval", "--sleep", "-w") and i + 1 < len(parts):
+        elif part in ("--wait", "--wait-min", "--wait-minutes", "--interval", "--sleep", "-w") and i + 1 < len(cleaned_parts):
             try:
-                wait_minutes = float(parts[i + 1])
+                wait_minutes = float(cleaned_parts[i + 1])
                 i += 2
                 continue
             except ValueError:
@@ -117,4 +149,6 @@ def parse_ralph_command(body: str) -> dict | None:
         "completion_promise": completion_promise,
         "wait_minutes": max(0.0, wait_minutes),
         "prompt_only": bool(prompt_only),
+        "swarm": int(swarm or 1),
+        "forward_args": forward_args,
     }
