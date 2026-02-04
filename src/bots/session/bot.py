@@ -29,6 +29,7 @@ from src.core.session_runtime.ports import (
 )
 from src.bots.session.inbound import (
     extract_attachment_urls,
+    extract_bob_images,
     extract_switch_meta,
     normalize_leading_at,
     strip_urls_from_body,
@@ -570,13 +571,22 @@ class SessionBot(BaseXMPPBot):
 
         attachments: list[Attachment] = []
         urls = extract_attachment_urls(msg, body)
+
         if urls:
-            attachments = await self.attachment_store.download_images(
-                self.session_name, urls
+            attachments.extend(
+                await self.attachment_store.download_images(self.session_name, urls)
             )
             if attachments:
-                self._send_attachment_meta(attachments)
                 body = strip_urls_from_body(body, urls)
+
+        bob_images = extract_bob_images(msg)
+        if bob_images:
+            attachments.extend(
+                self.attachment_store.store_images_from_bytes(self.session_name, bob_images)
+            )
+
+        if attachments:
+            self._send_attachment_meta(attachments)
 
         if meta_type == "question-reply":
             request_id = (meta_attrs or {}).get("request_id")

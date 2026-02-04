@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 
 
 _URL_RE = re.compile(r"https?://[^\s<>\]\)\}]+", re.IGNORECASE)
+_BOB_NS = "urn:xmpp:bob"
 
 
 def extract_switch_meta(
@@ -39,6 +41,11 @@ def extract_attachment_urls(msg, body: str) -> list[str]:
         for el in getattr(msg, "xml", []) or []:
             for child in list(el.iter()):
                 tag = getattr(child, "tag", "")
+                # XEP-0372 and other variants sometimes use attributes.
+                for attr in ("uri", "href"):
+                    v = (child.get(attr) or "").strip()
+                    if v.startswith("http"):
+                        urls.append(v)
                 if tag.endswith("}url") or tag == "url":
                     text = (getattr(child, "text", None) or "").strip()
                     if text.startswith("http"):
@@ -59,6 +66,50 @@ def extract_attachment_urls(msg, body: str) -> list[str]:
             continue
         seen.add(u)
         out.append(u)
+    return out
+
+
+def extract_bob_images(msg) -> list[tuple[str, bytes, str | None]]:
+    """Extract inline image payloads (XEP-0231 Bits of Binary).
+
+    Returns (mime, bytes, original_url).
+    """
+
+    out: list[tuple[str, bytes, str | None]] = []
+    seen_cids: set[str] = set()
+
+    try:
+        for el in getattr(msg, "xml", []) or []:
+            for child in list(el.iter()):
+                if getattr(child, "tag", None) != f"{{{_BOB_NS}}}data":
+                    continue
+
+                mime = ((child.get("type") or "").strip().lower())
+                if not mime.startswith("image/"):
+                    continue
+
+                cid = (child.get("cid") or "").strip()
+                if cid and cid in seen_cids:
+                    continue
+
+                raw = (getattr(child, "text", None) or "").strip()
+                if not raw:
+                    continue
+
+                try:
+                    data = base64.b64decode(raw.encode("utf-8"), validate=False)
+                except Exception:
+                    continue
+                if not data:
+                    continue
+
+                if cid:
+                    seen_cids.add(cid)
+                original = f"cid:{cid}" if cid else None
+                out.append((mime, data, original))
+    except Exception:
+        pass
+
     return out
 
 

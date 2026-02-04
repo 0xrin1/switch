@@ -185,3 +185,59 @@ class AttachmentStore:
                     continue
 
         return out
+
+    def store_images_from_bytes(
+        self,
+        session_name: str,
+        images: Iterable[tuple[str, bytes, str | None]],
+    ) -> list[Attachment]:
+        """Store already-available image bytes as attachments.
+
+        Intended for inline image payloads (e.g., XEP-0231 Bits of Binary).
+        """
+
+        out: list[Attachment] = []
+        max_bytes = int(os.getenv("SWITCH_ATTACHMENT_MAX_BYTES", str(10 * 1024 * 1024)))
+
+        batch_dir: Path | None = None
+        batch_prefix: str | None = None
+        idx = 0
+
+        for mime, data, original in images:
+            mime = (mime or "").strip().lower()
+            if not mime.startswith("image/"):
+                continue
+            if not data:
+                continue
+            if len(data) > max_bytes:
+                continue
+
+            sha = hashlib.sha256(data).hexdigest()
+            ext = _guess_ext(mime)
+
+            if batch_dir is None or batch_prefix is None:
+                batch_dir, batch_prefix = self._batch_dir(session_name)
+
+            idx += 1
+            stem = f"img_{idx:02d}_{uuid.uuid4().hex[:6]}"
+            filename = f"{batch_prefix}/{stem}{ext}"
+            path = batch_dir / f"{stem}{ext}"
+            path.write_bytes(data)
+
+            att_id = f"att_{uuid.uuid4().hex[:12]}"
+            public_url = self.build_public_url(session_name, filename)
+            out.append(
+                Attachment(
+                    id=att_id,
+                    kind="image",
+                    mime=mime,
+                    filename=filename,
+                    local_path=str(path),
+                    size_bytes=len(data),
+                    sha256=sha,
+                    original_url=original,
+                    public_url=public_url,
+                )
+            )
+
+        return out
