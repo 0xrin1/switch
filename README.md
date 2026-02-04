@@ -43,7 +43,7 @@ flowchart LR
             subgraph Orchestrators["Orchestrator Contacts"]
                 direction TB
                 CC["cc@...<br/>(Claude Code)"]
-                OC["oc@...<br/>(OpenCode GLM 4.7)"]
+                OC["oc@...<br/>(OpenCode GLM 4.7 Heretic)"]
                 OCGPT["oc-gpt@...<br/>(OpenCode GPT 5.2)"]
             end
 
@@ -237,7 +237,7 @@ Each AI backend shows up as a contact in your chat app. Message any of them to s
 | Contact | Backend | Model |
 |---------|---------|-------|
 | `cc@...` | Claude Code | Claude Opus |
-| `oc@...` | OpenCode | GLM 4.7 |
+| `oc@...` | OpenCode | GLM 4.7 Heretic |
 | `oc-gpt@...` | OpenCode | GPT 5.2 |
 | `oc-glm-zen@...` | OpenCode | GLM 4.7 (Zen) |
 | `oc-gpt-or@...` | OpenCode | GPT 5.2 (OpenRouter) |
@@ -270,7 +270,7 @@ flowchart LR
     Client --> Sessions
 
     cc --> Claude[Claude Code]
-    oc --> GLM["OpenCode (GLM 4.7)"]
+    oc --> GLM["OpenCode (GLM 4.7 Heretic)"]
     ocgpt --> GPT["OpenCode (GPT 5.2)"]
 
     s1 --> Claude
@@ -320,7 +320,7 @@ Session contacts:
 ## Models
 
 - `cc`: Claude (Claude Code CLI)
-- `oc`: GLM 4.7 (OpenCode)
+- `oc`: GLM 4.7 Heretic (OpenCode)
 - `oc-gpt`: GPT 5.2 (OpenCode)
 - `oc-kimi-coding`: Kimi K2.5 (OpenCode)
 

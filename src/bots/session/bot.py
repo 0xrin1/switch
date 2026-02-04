@@ -6,6 +6,7 @@ import asyncio
 from contextlib import suppress
 import logging
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
 
@@ -50,6 +51,8 @@ if TYPE_CHECKING:
 
     from src.db import Session
     from src.manager import SessionManager
+
+
 class SessionBot(BaseXMPPBot):
     """XMPP bot for a single session."""
 
@@ -89,6 +92,11 @@ class SessionBot(BaseXMPPBot):
             is_active=lambda: self.processing,
             is_shutting_down=lambda: self.shutting_down,
         )
+
+        # Best-effort escape hatch: when /cancel is used against a local vLLM-backed
+        # model, we may need to hard-abort the GPU-side generation.
+        self._last_vllm_abort_ts = 0.0
+        self._vllm_abort_task: asyncio.Task | None = None
 
         self._runtime = self._build_runtime()
         # Public session interface for commands/other adapters.
@@ -183,14 +191,18 @@ class SessionBot(BaseXMPPBot):
             )
 
     class _HistoryAdapter(HistoryPort):
-        def append_to_history(self, message: str, working_dir: str, claude_session_id: str | None) -> None:
+        def append_to_history(
+            self, message: str, working_dir: str, claude_session_id: str | None
+        ) -> None:
             append_to_history(message, working_dir, claude_session_id)
 
         def log_activity(self, message: str, *, session: str, source: str) -> None:
             log_activity(message, session=session, source=source)
 
     class _PromptAdapter(AttachmentPromptPort):
-        def augment_prompt(self, body: str, attachments: list[Attachment] | None) -> str:
+        def augment_prompt(
+            self, body: str, attachments: list[Attachment] | None
+        ) -> str:
             if not attachments:
                 return (body or "").strip()
             lines: list[str] = [(body or "").strip(), "", "User attached image(s):"]
@@ -282,7 +294,13 @@ class SessionBot(BaseXMPPBot):
         if self.shutting_down:
             return
 
-        max_len = 100000
+        # Many XMPP clients and bridges display/truncate long messages.
+        # Keep a conservative default and allow override for power users.
+        try:
+            max_len = int(os.getenv("SWITCH_XMPP_MESSAGE_MAX_LEN", "3500"))
+        except ValueError:
+            max_len = 3500
+        max_len = max(500, min(max_len, 100000))
         target = recipient or self.xmpp_recipient
         if len(text) <= max_len:
             msg = self.make_message(mto=target, mbody=text, mtype="chat")
@@ -357,7 +375,109 @@ class SessionBot(BaseXMPPBot):
             cancelled_any = True
             self.runner.cancel()
 
+        # If we're using Helga vLLM via the OpenCode server, cancellation at the
+        # OpenCode layer doesn't always stop the underlying vLLM generation.
+        # For those cases, do a best-effort hard abort.
+        if cancelled_any:
+            self._maybe_hard_abort_vllm()
+
         return cancelled_any
+
+    def _maybe_hard_abort_vllm(self) -> None:
+        """Best-effort: restart Helga vLLM to abort the active generation.
+
+        This is intentionally conservative:
+        - Only triggers for OpenCode sessions
+        - Only triggers when the selected model is our vLLM-backed GLM provider
+        - Cooldown + single in-flight task to avoid restart storms
+        """
+
+        enabled = os.getenv("SWITCH_VLLM_HARD_CANCEL", "1").strip().lower()
+        if enabled not in {"1", "true", "yes", "on"}:
+            return
+
+        session = self.sessions.get(self.session_name)
+        if not session:
+            return
+        engine = (session.active_engine or "").strip().lower()
+        if engine != "opencode":
+            return
+        model_id = (session.model_id or "").strip()
+        if not model_id.startswith("glm_vllm/"):
+            return
+
+        # Avoid spamming restarts if multiple cancellation paths fire.
+        try:
+            cooldown_s = float(os.getenv("SWITCH_VLLM_HARD_CANCEL_COOLDOWN_S", "10"))
+        except ValueError:
+            cooldown_s = 10.0
+        now = time.monotonic()
+        if now - self._last_vllm_abort_ts < max(0.0, cooldown_s):
+            return
+        self._last_vllm_abort_ts = now
+
+        if self._vllm_abort_task and not self._vllm_abort_task.done():
+            return
+
+        self._vllm_abort_task = self.spawn_guarded(
+            self._hard_abort_vllm(), context="session.vllm.hard_abort"
+        )
+
+    async def _hard_abort_vllm(self) -> None:
+        """Restart the vLLM container on Helga and wait for readiness."""
+
+        host = os.getenv("SWITCH_VLLM_SSH_HOST", "chkn_gpus").strip() or "chkn_gpus"
+        container = (
+            os.getenv("SWITCH_VLLM_DOCKER_CONTAINER", "vllm-glm47-heretic-nightly")
+            .strip()
+            or "vllm-glm47-heretic-nightly"
+        )
+        base_url = os.getenv("SWITCH_VLLM_HEALTH_URL", "http://127.0.0.1:8004/v1/models")
+
+        try:
+            timeout_s = float(os.getenv("SWITCH_VLLM_HARD_CANCEL_TIMEOUT_S", "90"))
+        except ValueError:
+            timeout_s = 90.0
+
+        remote_cmd = (
+            "set -euo pipefail; "
+            f"docker restart {container} >/dev/null; "
+            "for i in $(seq 1 120); do "
+            f"curl -fsS {base_url} >/dev/null && exit 0; "
+            "sleep 1; "
+            "done; "
+            "echo vllm_not_ready >&2; exit 1"
+        )
+
+        proc = await asyncio.create_subprocess_exec(
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            host,
+            remote_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            with suppress(Exception):
+                proc.kill()
+            raise
+
+        if proc.returncode != 0:
+            out = (stdout or b"").decode("utf-8", errors="replace").strip()
+            err = (stderr or b"").decode("utf-8", errors="replace").strip()
+            self.log.warning(
+                "vLLM hard abort failed (rc=%s) host=%s container=%s stdout=%s stderr=%s",
+                proc.returncode,
+                host,
+                container,
+                out[-1000:],
+                err[-1000:],
+            )
 
     async def hard_kill(self) -> None:
         """Hard-kill this session.
@@ -424,7 +544,9 @@ class SessionBot(BaseXMPPBot):
     # -------------------------------------------------------------------------
 
     async def on_message(self, msg):
-        await self.guard(self._handle_session_message(msg), context="session.on_message")
+        await self.guard(
+            self._handle_session_message(msg), context="session.on_message"
+        )
 
     async def _handle_session_message(self, msg):
         if msg["type"] not in ("chat", "normal"):
@@ -438,7 +560,9 @@ class SessionBot(BaseXMPPBot):
         if sender not in (self.xmpp_recipient, dispatcher_jid):
             return
 
-        meta_type, meta_attrs, meta_payload = extract_switch_meta(msg, meta_ns=SWITCH_META_NS)
+        meta_type, meta_attrs, meta_payload = extract_switch_meta(
+            msg, meta_ns=SWITCH_META_NS
+        )
 
         # Allow meta-only messages (e.g., button-based question replies).
         body = (msg["body"] or "").strip()
@@ -447,7 +571,9 @@ class SessionBot(BaseXMPPBot):
         attachments: list[Attachment] = []
         urls = extract_attachment_urls(msg, body)
         if urls:
-            attachments = await self.attachment_store.download_images(self.session_name, urls)
+            attachments = await self.attachment_store.download_images(
+                self.session_name, urls
+            )
             if attachments:
                 self._send_attachment_meta(attachments)
                 body = strip_urls_from_body(body, urls)
@@ -489,12 +615,22 @@ class SessionBot(BaseXMPPBot):
             self.log.info(f"Answered pending question with: {body[:50]}...")
             return
 
+        # If Ralph is running, inject the message instead of queuing.
+        if not is_scheduled and self._runtime.inject_ralph_prompt(body):
+            self.log.info(f"Injected into Ralph: {body[:50]}...")
+            return
+
         # Scheduled messages are best-effort; drop them if we're already running.
         if is_scheduled and self.processing:
             return
 
         # If we're busy, allow +spawn to fork work instead of queuing it.
-        if self.processing and (not is_scheduled) and body.startswith("+") and self.manager:
+        if (
+            self.processing
+            and (not is_scheduled)
+            and body.startswith("+")
+            and self.manager
+        ):
             await self.spawn_sibling_session(body[1:].strip())
             return
 
@@ -570,7 +706,9 @@ class SessionBot(BaseXMPPBot):
             meta_tool="bash",
         )
 
-        context_msg = f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
+        context_msg = (
+            f"[I ran a shell command: `{cmd}`]\n\nOutput:\n```\n{output[:8000]}\n```"
+        )
         await self.process_message(context_msg, trigger_response=False)
 
     async def peek_output(self, num_lines: int = 30):
@@ -633,7 +771,9 @@ class SessionBot(BaseXMPPBot):
             wait=True,
         )
 
-    def answer_pending_question(self, answer: object, *, request_id: str | None = None) -> bool:
+    def answer_pending_question(
+        self, answer: object, *, request_id: str | None = None
+    ) -> bool:
         """Answer a pending OpenCode question via XMPP meta reply."""
         return self._runtime.answer_question(answer, request_id=request_id)
 

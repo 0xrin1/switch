@@ -21,7 +21,7 @@ flowchart LR
             subgraph Orchestrators["Orchestrator Contacts"]
                 direction TB
                 CC["cc@...<br/>(Claude Code)"]
-                OC["oc@...<br/>(OpenCode GLM 4.7)"]
+                OC["oc@...<br/>(OpenCode GLM 4.7 Heretic)"]
                 OCGPT["oc-gpt@...<br/>(OpenCode GPT 5.2)"]
             end
 
@@ -160,7 +160,7 @@ Multiple orchestrators, each tied to a specific AI engine:
 | Contact | Engine | Model |
 |---------|--------|-------|
 | `cc@domain` | Claude Code | Opus |
-| `oc@domain` | OpenCode | GLM 4.7 |
+| `oc@domain` | OpenCode | GLM 4.7 Heretic |
 | `oc-gpt@domain` | OpenCode | GPT 5.2 |
 | `oc-glm-zen@domain` | OpenCode | GLM 4.7 (Zen) |
 | `oc-gpt-or@domain` | OpenCode | GPT 5.2 (OpenRouter) |

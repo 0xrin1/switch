@@ -22,12 +22,19 @@ class RalphConfig:
     max_iterations: int = 0
     completion_promise: str | None = None
     wait_seconds: float = 2.0
-    force_engine: str = "claude"
+    # If True, each iteration runs in a fresh remote session (no history).
+    # This makes the model see only `prompt` each time.
+    prompt_only: bool = False
+    # If set, force Ralph iterations to use a specific engine.
+    # If None, use the session's current active engine.
+    force_engine: str | None = None
 
 
 @dataclass
 class RalphStatus:
-    status: str  # queued|running|stopping|completed|cancelled|error|max_iterations|finished
+    status: (
+        str  # queued|running|stopping|completed|cancelled|error|max_iterations|finished
+    )
     current_iteration: int = 0
     max_iterations: int = 0
     wait_seconds: float = 0.0
@@ -54,13 +61,17 @@ class SessionPort(Protocol):
 
     def shutdown(self) -> None: ...
 
-    def answer_question(self, answer: object, *, request_id: str | None = None) -> bool: ...
+    def answer_question(
+        self, answer: object, *, request_id: str | None = None
+    ) -> bool: ...
 
     async def start_ralph(self, cfg: RalphConfig, *, wait: bool = False) -> None: ...
 
     def request_ralph_stop(self) -> bool: ...
 
     def get_ralph_status(self) -> RalphStatus | None: ...
+
+    def inject_ralph_prompt(self, prompt: str) -> bool: ...
 
 
 # -----------------
