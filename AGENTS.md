@@ -68,6 +68,19 @@ cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/spawn-session.py -
 
 The new session appears as a new contact for the user. Always capture discoveries to memory before spawning.
 
+### Ask Another Agent (Second Opinion)
+
+When useful, you can delegate to another dispatcher and wait for its first answer in one step:
+
+```bash
+cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/ask-agent.py --dispatcher oc-codex "Question to delegate"
+```
+
+Use this proactively when:
+- You want a quick second opinion from another model family
+- You need model-specific strengths (e.g., codex for implementation details)
+- You want to compare approaches before finalizing an answer
+
 ### Close Sessions (not your own)
 
 Clean up stale sessions:
@@ -121,6 +134,7 @@ cat ~/switch/skills/<skill-name>.md
 | Skills/runbooks | `~/switch/skills/` |
 | List sessions | `~/switch/scripts/sessions.sh list` |
 | Spawn session | `cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/spawn-session.py --dispatcher oc-gpt "message"` |
+| Ask another agent | `cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/ask-agent.py --dispatcher oc-codex "question"` |
 | Close session | `~/switch/scripts/sessions.sh kill <name>` |
 | Real-time logs | `journalctl --user -u switch -f` |
 

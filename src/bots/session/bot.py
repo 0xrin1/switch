@@ -566,8 +566,9 @@ class SessionBot(BaseXMPPBot):
             return
 
         sender = str(msg["from"].bare)
-        dispatcher_jid = f"oc@{self.xmpp_domain}"
-        if sender not in (self.xmpp_recipient, dispatcher_jid):
+        dispatcher_jid = self._current_dispatcher_jid()
+        trusted_peer = self._is_trusted_peer_session_sender(sender)
+        if sender not in (self.xmpp_recipient, dispatcher_jid) and not trusted_peer:
             return
 
         meta_type, meta_attrs, meta_payload = extract_switch_meta(
@@ -664,6 +665,33 @@ class SessionBot(BaseXMPPBot):
         if queued_before and not is_scheduled:
             self.send_reply(f"Queued ({self._runtime.pending_count()} pending)")
         return
+
+    def _current_dispatcher_jid(self) -> str:
+        session = self.sessions.get(self.session_name)
+        if session and session.dispatcher_jid:
+            return session.dispatcher_jid.split("/", 1)[0]
+        return f"oc@{self.xmpp_domain}"
+
+    def _is_trusted_peer_session_sender(self, sender_jid: str) -> bool:
+        sender_bare = (sender_jid or "").split("/", 1)[0]
+        if not sender_bare:
+            return False
+
+        peer = self.sessions.get_by_jid(sender_bare)
+        if not peer or peer.status != "active" or peer.name == self.session_name:
+            return False
+
+        current = self.sessions.get(self.session_name)
+        if not current:
+            return False
+
+        current_dispatcher = (current.dispatcher_jid or "").split("/", 1)[0]
+        peer_dispatcher = (peer.dispatcher_jid or "").split("/", 1)[0]
+
+        if current_dispatcher and peer_dispatcher:
+            return current_dispatcher == peer_dispatcher
+
+        return not current_dispatcher and not peer_dispatcher
 
     def _send_attachment_meta(self, attachments: list[Attachment]) -> None:
         payload = {
