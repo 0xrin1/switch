@@ -138,6 +138,12 @@ cat ~/switch/skills/<skill-name>.md
 | Close session | `~/switch/scripts/sessions.sh kill <name>` |
 | Real-time logs | `journalctl --user -u switch -f` |
 
+## Git Safety
+
+- **NEVER** commit or push unless the user explicitly asks you to.
+- If you believe a commit or push is needed, **ask for permission first**.
+- Permission granted in one session does not carry over — always confirm in the current session.
+
 ## If You're Working on Switch Itself
 
 The codebase is at `~/switch`. Use `uv run` for Python execution:

@@ -109,35 +109,14 @@ def get_xmpp_config() -> dict:
             "EJABBERD_CTL",
             f"ssh user@{server} /path/to/ejabberdctl",
         ),
-        # Three separate dispatchers
+        # Ordered to match hotkey assignments (Cmd+1..4), then the rest
         "dispatchers": {
-            "cc": {
-                "jid": os.getenv("CC_JID", f"cc@{domain}"),
-                "password": os.getenv("CC_PASSWORD", ""),
-                "engine": "claude",
-                "agent": None,
-                "label": "Claude Code",
-            },
             "acorn": {
                 "jid": os.getenv("ACORN_JID", f"acorn@{domain}"),
                 "password": os.getenv("ACORN_PASSWORD", ""),
                 "engine": "external",
                 "agent": None,
                 "label": "Acorn",
-            },
-            "oc": {
-                "jid": os.getenv("OC_JID", f"oc@{domain}"),
-                "password": os.getenv("OC_PASSWORD", ""),
-                "engine": "opencode",
-                "agent": "bridge",
-                "label": "GLM 4.7 Heretic",
-            },
-            "oc-gpt": {
-                "jid": os.getenv("OC_GPT_JID", f"oc-gpt@{domain}"),
-                "password": os.getenv("OC_GPT_PASSWORD", ""),
-                "engine": "opencode",
-                "agent": "bridge-gpt",
-                "label": "GPT 5.2",
             },
             "oc-codex": {
                 "jid": os.getenv("OC_CODEX_JID", f"oc-codex@{domain}"),
@@ -148,6 +127,27 @@ def get_xmpp_config() -> dict:
                 "agent": "bridge-gpt",
                 "model_id": "openai/codex-5.3",
                 "label": "Codex 5.3",
+            },
+            "cc": {
+                "jid": os.getenv("CC_JID", f"cc@{domain}"),
+                "password": os.getenv("CC_PASSWORD", ""),
+                "engine": "claude",
+                "agent": None,
+                "label": "Claude Code",
+            },
+            "oc-gpt": {
+                "jid": os.getenv("OC_GPT_JID", f"oc-gpt@{domain}"),
+                "password": os.getenv("OC_GPT_PASSWORD", ""),
+                "engine": "opencode",
+                "agent": "bridge-gpt",
+                "label": "GPT 5.2",
+            },
+            "oc": {
+                "jid": os.getenv("OC_JID", f"oc@{domain}"),
+                "password": os.getenv("OC_PASSWORD", ""),
+                "engine": "opencode",
+                "agent": "bridge",
+                "label": "GLM 4.7 Heretic",
             },
             "oc-glm-zen": {
                 "jid": os.getenv("OC_GLM_ZEN_JID", f"oc-glm-zen@{domain}"),

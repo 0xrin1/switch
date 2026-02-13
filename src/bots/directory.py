@@ -99,6 +99,12 @@ class DirectoryBot(BaseXMPPBot):
         if requested == self.DISPATCHERS_NODE:
             return self._items_dispatchers()
 
+        # Direct dispatcher→sessions lookup (no groups indirection).
+        if requested.startswith("sessions:"):
+            dispatcher_jid = requested[len("sessions:"):]
+            return self._items_sessions(dispatcher_jid)
+
+        # Legacy: groups + individuals (kept for backward compat).
         if requested.startswith("groups:"):
             dispatcher_jid = requested[len("groups:") :]
             return self._items_groups(dispatcher_jid)
@@ -121,6 +127,48 @@ class DirectoryBot(BaseXMPPBot):
             if not djid:
                 continue
             items.add_item(JID(djid), name=label)
+        return items
+
+    def _items_sessions(self, dispatcher_jid: str) -> DiscoItems:
+        """Return sessions for a dispatcher directly (no groups indirection)."""
+        items = DiscoItems()
+        key = self._dispatcher_key_for_jid(dispatcher_jid)
+
+        now = time.time()
+        if (
+            self._active_sessions_cache
+            and (now - self._active_sessions_cache_ts) < self.ACTIVE_SESSIONS_CACHE_TTL_S
+        ):
+            sessions = self._active_sessions_cache
+        else:
+            sessions = self.sessions.list_active_recent(limit=self.ACTIVE_SESSIONS_LIMIT)
+            self._active_sessions_cache = sessions
+            self._active_sessions_cache_ts = now
+
+        if key:
+            cfg = self.dispatchers_config.get(key) or {}
+            cfg_jid = cfg.get("jid")
+            engine = cfg.get("engine")
+            agent = cfg.get("agent")
+            filtered = []
+            for s in sessions:
+                if s.dispatcher_jid:
+                    if str(JID(s.dispatcher_jid).bare) != str(JID(cfg_jid).bare):
+                        continue
+                else:
+                    if engine and s.active_engine != engine:
+                        continue
+                    if engine == "opencode" and agent and s.opencode_agent != agent:
+                        continue
+                filtered.append(s)
+            sessions = filtered
+
+        for s in sessions:
+            try:
+                items.add_item(JID(s.xmpp_jid), name=s.name)
+            except Exception:
+                continue
+
         return items
 
     def _items_groups(self, dispatcher_jid: str) -> DiscoItems:
@@ -184,17 +232,48 @@ class DirectoryBot(BaseXMPPBot):
     # ---------------------------------------------------------------------
 
     def notify_sessions_changed(self, dispatcher_jid: str | None = None) -> None:
-        """Publish a lightweight change notification for session lists."""
+        """Publish a change notification for session lists."""
         if dispatcher_jid:
             key = self._dispatcher_key_for_jid(dispatcher_jid)
             if key:
+                # New direct node.
+                self._publish_sessions_payload(dispatcher_jid)
+                # Legacy node (for older clients).
                 group_jid = self._sessions_group_jid_for_dispatcher(key)
-                node = f"individuals:{group_jid}"
-                self._publish_ping(node)
+                self._publish_ping(f"individuals:{group_jid}")
                 return
 
         # Fallback: global refresh.
         self._publish_ping(self.DISPATCHERS_NODE)
+
+    def _publish_sessions_payload(self, dispatcher_jid: str) -> None:
+        """Publish a fat notification with the full session list inline."""
+        node = f"sessions:{dispatcher_jid}"
+        try:
+            self._ensure_pubsub_node(node)
+            items_disco = self._items_sessions(dispatcher_jid)
+            payload = ET.Element("switch")
+            payload.set("event", "sessions")
+            payload.set("ts", str(int(time.time())))
+            payload.set("dispatcher", dispatcher_jid)
+            for item_tuple in items_disco["items"]:
+                # items are (jid, node, name) tuples
+                jid_val, _, name_val = item_tuple
+                session_el = ET.SubElement(payload, "session")
+                session_el.set("jid", str(jid_val))
+                if name_val:
+                    session_el.set("name", name_val)
+            pubsub = cast(Any, self["xep_0060"])
+            pubsub.publish(  # pyright: ignore[reportAttributeAccessIssue]
+                self.pubsub_service_jid,
+                node,
+                id=str(uuid.uuid4()),
+                payload=payload,
+            )
+        except (IqTimeout, IqError) as exc:
+            self.log.warning("PubSub publish failed for %s: %s", node, exc)
+        except Exception as exc:
+            self.log.debug("Failed to publish sessions payload for %s: %s", node, exc)
 
     def _publish_ping(self, node: str) -> None:
         try:
