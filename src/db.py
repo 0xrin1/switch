@@ -85,7 +85,7 @@ class SessionRepository:
             active_engine=row["active_engine"] or "opencode",
             opencode_agent=row["opencode_agent"] or "bridge",
             model_id=row["model_id"] or OPENCODE_MODEL_DEFAULT,
-            reasoning_mode=row["reasoning_mode"] or "high",
+            reasoning_mode=row["reasoning_mode"] or "normal",
             dispatcher_jid=row["dispatcher_jid"] if "dispatcher_jid" in row.keys() else None,
             tmux_name=row["tmux_name"],
             created_at=row["created_at"],
@@ -143,7 +143,7 @@ class SessionRepository:
         model_id: str = OPENCODE_MODEL_DEFAULT,
         opencode_agent: str = "bridge",
         active_engine: str = "opencode",
-        reasoning_mode: str = "high",
+        reasoning_mode: str = "normal",
         dispatcher_jid: str | None = None,
     ) -> Session:
         now = datetime.now().isoformat()
@@ -381,7 +381,7 @@ def init_db() -> sqlite3.Connection:
             active_engine TEXT DEFAULT 'opencode',
             opencode_agent TEXT DEFAULT 'bridge',
             model_id TEXT DEFAULT 'glm_vllm/glm-4.7-flash-heretic.Q8_0.gguf',
-            reasoning_mode TEXT DEFAULT 'high',
+            reasoning_mode TEXT DEFAULT 'normal',
             tmux_name TEXT,
             created_at TEXT NOT NULL,
             last_active TEXT NOT NULL,
@@ -437,7 +437,7 @@ def init_db() -> sqlite3.Connection:
         ("active_engine", "TEXT DEFAULT 'opencode'"),
         ("opencode_agent", "TEXT DEFAULT 'bridge'"),
         ("model_id", f"TEXT DEFAULT '{OPENCODE_MODEL_DEFAULT}'"),
-        ("reasoning_mode", "TEXT DEFAULT 'high'"),
+        ("reasoning_mode", "TEXT DEFAULT 'normal'"),
         ("dispatcher_jid", "TEXT"),
     ]
     for col_name, col_type in migrations:
