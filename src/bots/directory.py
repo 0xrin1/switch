@@ -126,13 +126,24 @@ class DirectoryBot(BaseXMPPBot):
             label = cfg.get("label") or key
             if not djid:
                 continue
-            items.add_item(JID(djid), name=label)
+            node = "direct" if cfg.get("direct") else None
+            items.add_item(JID(djid), node=node, name=label)
         return items
+
+    def _is_direct_dispatcher(self, key: str | None) -> bool:
+        if not key:
+            return False
+        cfg = self.dispatchers_config.get(key) or {}
+        return bool(cfg.get("direct"))
 
     def _items_sessions(self, dispatcher_jid: str) -> DiscoItems:
         """Return sessions for a dispatcher directly (no groups indirection)."""
         items = DiscoItems()
         key = self._dispatcher_key_for_jid(dispatcher_jid)
+
+        # Direct dispatchers (e.g. Acorn) have no sessions.
+        if self._is_direct_dispatcher(key):
+            return items
 
         now = time.time()
         if (
@@ -141,25 +152,21 @@ class DirectoryBot(BaseXMPPBot):
         ):
             sessions = self._active_sessions_cache
         else:
-            sessions = self.sessions.list_active_recent(limit=self.ACTIVE_SESSIONS_LIMIT)
+            sessions = self.sessions.list_browsable(limit=self.ACTIVE_SESSIONS_LIMIT)
             self._active_sessions_cache = sessions
             self._active_sessions_cache_ts = now
 
         if key:
             cfg = self.dispatchers_config.get(key) or {}
             cfg_jid = cfg.get("jid")
-            engine = cfg.get("engine")
-            agent = cfg.get("agent")
             filtered = []
             for s in sessions:
                 if s.dispatcher_jid:
+                    # Session knows its dispatcher — exact match only.
                     if str(JID(s.dispatcher_jid).bare) != str(JID(cfg_jid).bare):
                         continue
-                else:
-                    if engine and s.active_engine != engine:
-                        continue
-                    if engine == "opencode" and agent and s.opencode_agent != agent:
-                        continue
+                # Sessions without dispatcher_jid are shown under all dispatchers
+                # (legacy data / reconstructed records).
                 filtered.append(s)
             sessions = filtered
 
@@ -193,7 +200,7 @@ class DirectoryBot(BaseXMPPBot):
         ):
             sessions = self._active_sessions_cache
         else:
-            sessions = self.sessions.list_active_recent(limit=self.ACTIVE_SESSIONS_LIMIT)
+            sessions = self.sessions.list_browsable(limit=self.ACTIVE_SESSIONS_LIMIT)
             self._active_sessions_cache = sessions
             self._active_sessions_cache_ts = now
 
@@ -201,20 +208,12 @@ class DirectoryBot(BaseXMPPBot):
         if key:
             cfg = self.dispatchers_config.get(key) or {}
             dispatcher_jid = cfg.get("jid")
-            engine = cfg.get("engine")
-            agent = cfg.get("agent")
             filtered = []
             for s in sessions:
                 if s.dispatcher_jid:
-                    # Session knows which dispatcher spawned it — exact match.
                     if str(JID(s.dispatcher_jid).bare) != str(JID(dispatcher_jid).bare):
                         continue
-                else:
-                    # Legacy session without dispatcher_jid — fall back to heuristic.
-                    if engine and s.active_engine != engine:
-                        continue
-                    if engine == "opencode" and agent and s.opencode_agent != agent:
-                        continue
+                # Sessions without dispatcher_jid shown under all dispatchers.
                 filtered.append(s)
             sessions = filtered
 

@@ -134,6 +134,16 @@ class SessionRepository:
         ).fetchall()
         return [self._row_to_session(row) for row in rows]
 
+    def list_browsable(self, limit: int = 200) -> list[Session]:
+        """List sessions for directory browsing (all statuses, most recent first)."""
+        rows = self.conn.execute(
+            """SELECT * FROM sessions
+               ORDER BY last_active DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_session(row) for row in rows]
+
     def create(
         self,
         name: str,

@@ -117,6 +117,7 @@ def get_xmpp_config() -> dict:
                 "engine": "external",
                 "agent": None,
                 "label": "Acorn",
+                "direct": True,
             },
             "oc-codex": {
                 "jid": os.getenv("OC_CODEX_JID", f"oc-codex@{domain}"),
