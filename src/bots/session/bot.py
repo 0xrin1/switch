@@ -451,12 +451,12 @@ class SessionBot(BaseXMPPBot):
         host = os.getenv("SWITCH_VLLM_SSH_HOST", "chkn_gpus").strip() or "chkn_gpus"
         container = (
             os.getenv(
-                "SWITCH_VLLM_DOCKER_CONTAINER", "vllm-glm47-heretic-nightly"
+                "SWITCH_VLLM_DOCKER_CONTAINER", "glm47_switch_128k"
             ).strip()
-            or "vllm-glm47-heretic-nightly"
+            or "glm47_switch_128k"
         )
         base_url = os.getenv(
-            "SWITCH_VLLM_HEALTH_URL", "http://127.0.0.1:8004/v1/models"
+            "SWITCH_VLLM_HEALTH_URL", "http://127.0.0.1:8027/v1/models"
         )
 
         try:
@@ -492,7 +492,14 @@ class SessionBot(BaseXMPPBot):
         except asyncio.TimeoutError:
             with suppress(Exception):
                 proc.kill()
-            raise
+            self.log.warning(
+                "vLLM hard abort timed out host=%s container=%s health=%s timeout_s=%s",
+                host,
+                container,
+                base_url,
+                timeout_s,
+            )
+            return
 
         if proc.returncode != 0:
             out = (stdout or b"").decode("utf-8", errors="replace").strip()
