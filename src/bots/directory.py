@@ -121,12 +121,17 @@ class DirectoryBot(BaseXMPPBot):
 
     def _items_dispatchers(self) -> DiscoItems:
         items = DiscoItems()
-        for key, cfg in self.dispatchers_config.items():
+        for idx, (key, cfg) in enumerate(self.dispatchers_config.items()):
             djid = cfg.get("jid")
             label = cfg.get("label") or key
             if not djid:
                 continue
-            node = "direct" if cfg.get("direct") else None
+            # Encode position + direct flag in node so clients can restore
+            # server-defined order (DiscoItems uses a set internally).
+            if cfg.get("direct"):
+                node = f"{idx}:direct"
+            else:
+                node = str(idx)
             items.add_item(JID(djid), node=node, name=label)
         return items
 
