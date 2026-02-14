@@ -11,6 +11,7 @@ It intentionally depends only on ports, not concrete XMPP/DB/runners.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -38,6 +39,8 @@ from src.core.session_runtime.ports import (
     SessionState,
     SessionStorePort,
 )
+
+log = logging.getLogger("session_runtime")
 
 
 @dataclass(frozen=True)
@@ -102,7 +105,10 @@ class SessionRuntime:
         # This reflects total tokens/cost used, regardless of remote session resets.
         self._usage_tokens_total: dict[str, int] = {"opencode": 0, "claude": 0}
         self._usage_cost_total: dict[str, float] = {"opencode": 0.0, "claude": 0.0}
-        self._last_remote_session_id: dict[str, str | None] = {"opencode": None, "claude": None}
+        self._last_remote_session_id: dict[str, str | None] = {
+            "opencode": None,
+            "claude": None,
+        }
 
         # Throttle last_active writes. SQLite commits can become a bottleneck under
         # high message throughput (and directory browsing is read-heavy).
@@ -137,16 +143,20 @@ class SessionRuntime:
     def _update_usage_totals(self, engine: str, stats: dict) -> None:
         tokens = self._extract_run_tokens(engine, stats)
         if tokens > 0:
-            self._usage_tokens_total[engine] = int(self._usage_tokens_total.get(engine, 0)) + tokens
+            self._usage_tokens_total[engine] = (
+                int(self._usage_tokens_total.get(engine, 0)) + tokens
+            )
 
         cost = stats.get("cost_usd")
         if isinstance(cost, (int, float)) and cost:
-            self._usage_cost_total[engine] = float(self._usage_cost_total.get(engine, 0.0)) + float(cost)
+            self._usage_cost_total[engine] = float(
+                self._usage_cost_total.get(engine, 0.0)
+            ) + float(cost)
 
     def _format_session_tokens_suffix(self, engine: str) -> str:
         total = int(self._usage_tokens_total.get(engine, 0) or 0)
         if total >= 1000:
-            return f"sess {total/1000.0:.1f}k tok"
+            return f"sess {total / 1000.0:.1f}k tok"
         return f"sess {total} tok"
 
     def ensure_running(self) -> None:
@@ -360,6 +370,15 @@ class SessionRuntime:
                 except asyncio.CancelledError:
                     if self.shutting_down:
                         raise
+                except Exception as e:
+                    # Keep the per-session worker alive even if one engine run fails.
+                    # Otherwise a single runner error kills this loop task and the UI
+                    # appears connected but no longer processes new messages.
+                    log.exception("SessionRuntime loop error for %s", self.session_name)
+                    if item.trigger_response:
+                        await self._emit(
+                            OutboundMessage(f"Error: {type(e).__name__}: {e}")
+                        )
                 finally:
                     if item.trigger_response:
                         self._set_processing(False)
@@ -564,7 +583,9 @@ class SessionRuntime:
                     if not session:
                         self._ralph_status.status = "error"
                         self._ralph_status.error = "Session not found"
-                        await self._emit(OutboundMessage("Session not found in database."))
+                        await self._emit(
+                            OutboundMessage("Session not found in database.")
+                        )
                         self._ralph_save("error")
                         return
 
@@ -602,7 +623,8 @@ class SessionRuntime:
                     # Check for completion promise in injected response too.
                     if (
                         cfg.completion_promise
-                        and f"<promise>{cfg.completion_promise}</promise>" in result.text
+                        and f"<promise>{cfg.completion_promise}</promise>"
+                        in result.text
                     ):
                         self._ralph_status.status = "completed"
                         await self._emit(
@@ -644,7 +666,11 @@ class SessionRuntime:
         return cfg.prompt
 
     async def _run_ralph_iteration(
-        self, cfg: RalphConfig, session: SessionState, *, prompt_override: str | None = None
+        self,
+        cfg: RalphConfig,
+        session: SessionState,
+        *,
+        prompt_override: str | None = None,
     ) -> "SessionRuntime._RalphIterationResult":
         result = SessionRuntime._RalphIterationResult()
         engine = (
@@ -911,19 +937,31 @@ class SessionRuntime:
             }
 
             # Remember remote session ID (informational only; totals are lifetime).
-            sid = stats.get("session_id") if isinstance(stats.get("session_id"), str) else None
+            sid = (
+                stats.get("session_id")
+                if isinstance(stats.get("session_id"), str)
+                else None
+            )
             self._remember_remote_session_id(engine, sid)
             self._update_usage_totals(engine, stats)
 
             # Expose cumulative totals to the UI.
             stats = dict(stats)
-            stats["session_tokens_total"] = int(self._usage_tokens_total.get(engine, 0) or 0)
-            stats["session_cost_total"] = float(self._usage_cost_total.get(engine, 0.0) or 0.0)
+            stats["session_tokens_total"] = int(
+                self._usage_tokens_total.get(engine, 0) or 0
+            )
+            stats["session_cost_total"] = float(
+                self._usage_cost_total.get(engine, 0.0) or 0.0
+            )
 
             summary = stats.get("summary")
             if isinstance(summary, str) and summary:
                 # Append a stable running token total.
-                stats["summary"] = summary.rstrip() + " | " + self._format_session_tokens_suffix(engine)
+                stats["summary"] = (
+                    summary.rstrip()
+                    + " | "
+                    + self._format_session_tokens_suffix(engine)
+                )
 
             meta_type = "run-stats"
             meta_attrs = {

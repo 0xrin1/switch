@@ -296,6 +296,10 @@ class SessionBot(BaseXMPPBot):
         if self.shutting_down:
             return
 
+        # Some runners occasionally include trailing blank lines; trim only
+        # terminal newlines so clients do not render padded empty space.
+        text = text.rstrip("\r\n")
+
         # Many XMPP clients and bridges display/truncate long messages.
         # Keep a conservative default and allow override for power users.
         try:
@@ -438,11 +442,14 @@ class SessionBot(BaseXMPPBot):
 
         host = os.getenv("SWITCH_VLLM_SSH_HOST", "chkn_gpus").strip() or "chkn_gpus"
         container = (
-            os.getenv("SWITCH_VLLM_DOCKER_CONTAINER", "vllm-glm47-heretic-nightly")
-            .strip()
+            os.getenv(
+                "SWITCH_VLLM_DOCKER_CONTAINER", "vllm-glm47-heretic-nightly"
+            ).strip()
             or "vllm-glm47-heretic-nightly"
         )
-        base_url = os.getenv("SWITCH_VLLM_HEALTH_URL", "http://127.0.0.1:8004/v1/models")
+        base_url = os.getenv(
+            "SWITCH_VLLM_HEALTH_URL", "http://127.0.0.1:8004/v1/models"
+        )
 
         try:
             timeout_s = float(os.getenv("SWITCH_VLLM_HARD_CANCEL_TIMEOUT_S", "90"))
@@ -471,7 +478,9 @@ class SessionBot(BaseXMPPBot):
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout_s
+            )
         except asyncio.TimeoutError:
             with suppress(Exception):
                 proc.kill()
@@ -592,7 +601,9 @@ class SessionBot(BaseXMPPBot):
         bob_images = extract_bob_images(msg)
         if bob_images:
             attachments.extend(
-                self.attachment_store.store_images_from_bytes(self.session_name, bob_images)
+                self.attachment_store.store_images_from_bytes(
+                    self.session_name, bob_images
+                )
             )
 
         if attachments:

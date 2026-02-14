@@ -7,12 +7,15 @@ Parsing/state updates live in OpenCodeEventProcessor.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 import aiohttp
 from src.runners.base import RunState
 from src.runners.opencode.client import OpenCodeClient
 from src.runners.opencode.processor import OpenCodeEventProcessor
+
+log = logging.getLogger("opencode")
 
 
 class OpenCodeTransport:
@@ -42,7 +45,12 @@ class OpenCodeTransport:
 
     async def wait_cancelled(self) -> None:
         if self._abort_task:
-            await self._abort_task
+            try:
+                await self._abort_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                log.warning(f"OpenCode abort task failed during wait_cancelled: {e}")
 
     async def start_session(
         self,
@@ -147,11 +155,15 @@ class OpenCodeTransport:
                 self._client_session, self._active_session_id
             )
 
-        if self._abort_task and not self._abort_task.done():
+        if self._abort_task:
             try:
                 await self._abort_task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                # Avoid noisy "Task exception was never retrieved" warnings when
+                # cancel races with session/connector shutdown.
+                log.warning(f"OpenCode abort task failed during cleanup: {e}")
 
         self._client_session = None
         self._abort_task = None

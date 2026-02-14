@@ -126,7 +126,7 @@ def get_xmpp_config() -> dict:
                 ),
                 "engine": "opencode",
                 "agent": "bridge-gpt",
-                "model_id": "openai/codex-5.3",
+                "model_id": "openai/gpt-5.3-codex",
                 "label": "Codex 5.3",
             },
             "cc": {

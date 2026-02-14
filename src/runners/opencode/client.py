@@ -104,7 +104,13 @@ class OpenCodeClient:
         body: dict[str, object] = {"parts": parts}
         if model_payload:
             body["model"] = model_payload
-        if agent:
+        # OpenCode server v1.1.65 can silently no-op when `agent` is provided
+        # (HTTP 200, empty body, no stored messages). Keep agent opt-in.
+        if agent and os.getenv("SWITCH_OPENCODE_SEND_AGENT", "0") in {
+            "1",
+            "true",
+            "True",
+        }:
             body["agent"] = agent
         if reasoning_mode == "high" and model_payload:
             body["model"] = {**model_payload, "variant": "high"}
