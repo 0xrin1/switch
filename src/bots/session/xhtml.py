@@ -11,6 +11,8 @@ _TABLE_SEPARATOR_RE = re.compile(
     r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$"
 )
 _ORDERED_LIST_RE = re.compile(r"^\s*\d+[.)]\s+")
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_INLINE_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
 
 
 def build_xhtml_message(text: str) -> ET.Element | None:
@@ -43,18 +45,26 @@ def build_xhtml_message(text: str) -> ET.Element | None:
             ul = ET.SubElement(body, f"{{{XHTML_NS}}}ul")
             for item in payload:
                 li = ET.SubElement(ul, f"{{{XHTML_NS}}}li")
-                li.text = item
+                _fill_inline(li, item)
             continue
 
         if kind == "ol":
             ol = ET.SubElement(body, f"{{{XHTML_NS}}}ol")
             for item in payload:
                 li = ET.SubElement(ol, f"{{{XHTML_NS}}}li")
-                li.text = item
+                _fill_inline(li, item)
+            continue
+
+        if kind == "h":
+            # XHTML-IM's recommended profile has no h1-h6; a bold paragraph
+            # renders on every client.
+            p = ET.SubElement(body, f"{{{XHTML_NS}}}p")
+            strong = ET.SubElement(p, f"{{{XHTML_NS}}}strong")
+            _fill_inline(strong, payload)
             continue
 
         p = ET.SubElement(body, f"{{{XHTML_NS}}}p")
-        _set_with_breaks(p, payload)
+        _fill_inline(p, payload)
 
     return html
 
@@ -116,6 +126,12 @@ def _parse_blocks(text: str) -> list[tuple[str, object]]:
             out.append(("ol", items))
             continue
 
+        heading = _HEADING_RE.match(lines[i].strip())
+        if heading:
+            out.append(("h", heading.group(2)))
+            i += 1
+            continue
+
         para_lines = [lines[i]]
         i += 1
         while i < n and lines[i].strip():
@@ -125,6 +141,8 @@ def _parse_blocks(text: str) -> list[tuple[str, object]]:
                 break
             if _is_unordered_list_item(lines[i]) or _is_ordered_list_item(lines[i]):
                 break
+            if _HEADING_RE.match(lines[i].strip()):
+                break
             para_lines.append(lines[i])
             i += 1
         out.append(("p", "\n".join(para_lines).strip()))
@@ -132,12 +150,84 @@ def _parse_blocks(text: str) -> list[tuple[str, object]]:
     return out
 
 
-def _set_with_breaks(node: ET.Element, text: str) -> None:
-    parts = text.split("\n")
-    node.text = parts[0] if parts else ""
-    for part in parts[1:]:
-        br = ET.SubElement(node, f"{{{XHTML_NS}}}br")
-        br.tail = part
+def _parse_inline(text: str) -> list[tuple[str, object]]:
+    """Split a single line into inline segments.
+
+    Segments: ("text", str), ("strong", str), ("code", str), ("a", (label, href)).
+    Unbalanced markers stay literal text.
+    """
+    out: list[tuple[str, object]] = []
+    buf: list[str] = []
+    i = 0
+    n = len(text)
+
+    def flush() -> None:
+        if buf:
+            out.append(("text", "".join(buf)))
+            buf.clear()
+
+    while i < n:
+        two = text[i : i + 2]
+        if two in ("**", "__"):
+            close = text.find(two, i + 2)
+            if close > i + 2:
+                flush()
+                out.append(("strong", text[i + 2 : close]))
+                i = close + 2
+                continue
+        elif text[i] == "`":
+            close = text.find("`", i + 1)
+            if close > i + 1:
+                flush()
+                out.append(("code", text[i + 1 : close]))
+                i = close + 1
+                continue
+        elif text[i] == "[":
+            m = _INLINE_LINK_RE.match(text, i)
+            if m:
+                flush()
+                out.append(("a", (m.group(1), m.group(2))))
+                i = m.end()
+                continue
+        buf.append(text[i])
+        i += 1
+
+    flush()
+    return out
+
+
+def _fill_inline(node: ET.Element, text: str) -> None:
+    """Set inline-formatted content on a node, with <br/> for newlines."""
+    last: ET.Element | None = None
+
+    def append_text(s: str) -> None:
+        if not s:
+            return
+        if last is None:
+            node.text = (node.text or "") + s
+        else:
+            last.tail = (last.tail or "") + s
+
+    for line_no, line in enumerate(text.split("\n")):
+        if line_no:
+            last = ET.SubElement(node, f"{{{XHTML_NS}}}br")
+        for kind, payload in _parse_inline(line):
+            if kind == "text":
+                append_text(payload)  # type: ignore[arg-type]
+            elif kind == "strong":
+                el = ET.SubElement(node, f"{{{XHTML_NS}}}strong")
+                _fill_inline(el, payload)  # nested `code` / links inside bold
+                last = el
+            elif kind == "code":
+                el = ET.SubElement(node, f"{{{XHTML_NS}}}code")
+                el.text = payload
+                last = el
+            elif kind == "a":
+                label, href = payload
+                el = ET.SubElement(node, f"{{{XHTML_NS}}}a")
+                el.set("href", href)
+                el.text = label
+                last = el
 
 
 def _append_table(parent: ET.Element, headers: list[str], rows: list[list[str]]) -> None:
@@ -146,7 +236,7 @@ def _append_table(parent: ET.Element, headers: list[str], rows: list[list[str]])
     tr_head = ET.SubElement(thead, f"{{{XHTML_NS}}}tr")
     for h in headers:
         th = ET.SubElement(tr_head, f"{{{XHTML_NS}}}th")
-        th.text = h
+        _fill_inline(th, h)
 
     if rows:
         tbody = ET.SubElement(table, f"{{{XHTML_NS}}}tbody")
@@ -155,7 +245,7 @@ def _append_table(parent: ET.Element, headers: list[str], rows: list[list[str]])
             for idx in range(len(headers)):
                 cell = row[idx] if idx < len(row) else ""
                 td = ET.SubElement(tr, f"{{{XHTML_NS}}}td")
-                td.text = cell
+                _fill_inline(td, cell)
 
 
 def _looks_like_table_row(line: str) -> bool:
