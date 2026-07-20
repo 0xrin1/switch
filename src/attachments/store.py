@@ -3,18 +3,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import ipaddress
+import logging
 import os
+import re
 import socket
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
 from .config import AttachmentsConfig, get_attachments_config
+
+log = logging.getLogger(__name__)
 
 
 _DEFAULT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
@@ -78,6 +82,85 @@ def _is_public_ip(value: str) -> bool:
     )
 
 
+def _split_env_list(value: str | None) -> set[str]:
+    return {p.strip() for p in re.split(r"[\s,]+", value or "") if p.strip()}
+
+
+def _attachment_host_overrides() -> dict[str, str]:
+    """Map URL hosts to alternate connect hosts for attachment fetches.
+
+    Useful when upload URLs use a Tailscale/CGNAT address but local routing sends
+    that range through another VPN. Format:
+      SWITCH_ATTACHMENT_FETCH_HOST_OVERRIDES=100.100.1.50=192.168.1.50
+    """
+
+    out: dict[str, str] = {}
+    for item in _split_env_list(os.getenv("SWITCH_ATTACHMENT_FETCH_HOST_OVERRIDES")):
+        if "=" not in item:
+            continue
+        src, dst = item.split("=", 1)
+        src = src.strip().strip("[]")
+        dst = dst.strip().strip("[]")
+        if src and dst:
+            out[src] = dst
+    return out
+
+
+def _trusted_attachment_hosts() -> set[str]:
+    hosts = _split_env_list(os.getenv("SWITCH_ATTACHMENT_TRUSTED_HOSTS"))
+    xmpp_domain = (os.getenv("XMPP_DOMAIN") or "").strip().strip("[]")
+    if xmpp_domain:
+        hosts.add(xmpp_domain)
+    hosts.update(_attachment_host_overrides().keys())
+    return hosts
+
+
+def _insecure_tls_attachment_hosts() -> set[str]:
+    """Hosts whose upload service is trusted but uses a self-signed cert.
+
+    Defaulting to XMPP_DOMAIN matches common ejabberd HTTP-upload-on-tailnet setups.
+    Public internet attachment URLs still use normal certificate verification.
+    """
+
+    raw = os.getenv("SWITCH_ATTACHMENT_INSECURE_TLS_HOSTS")
+    hosts = _split_env_list(raw)
+    if raw is None:
+        xmpp_domain = (os.getenv("XMPP_DOMAIN") or "").strip().strip("[]")
+        if xmpp_domain:
+            hosts.add(xmpp_domain)
+    return hosts
+
+
+def _netloc(host: str, port: int | None) -> str:
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        host = f"[{host}]"
+    return f"{host}:{port}" if port is not None else host
+
+
+def _attachment_fetch_request(
+    url: str,
+    host_overrides: dict[str, str],
+) -> tuple[str, dict[str, str], str]:
+    """Return (fetch_url, headers, original_host) for an attachment URL.
+
+    aiohttp does not resolve numeric IP URL hosts through a custom resolver, so
+    host overrides are applied by connecting to the alternate URL and sending the
+    original Host header. This matches `curl --resolve` for self-hosted upload
+    endpoints while preserving `original_url` in metadata.
+    """
+
+    parsed = urlparse(url)
+    original_host = (parsed.hostname or "").strip().strip("[]")
+    headers = {"Accept": "image/*"}
+    override = host_overrides.get(original_host)
+    if not override:
+        return url, headers, original_host
+
+    headers["Host"] = parsed.netloc
+    fetch_url = urlunparse(parsed._replace(netloc=_netloc(override, parsed.port)))
+    return fetch_url, headers, original_host
+
+
 async def _is_allowed_remote_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
@@ -90,7 +173,8 @@ async def _is_allowed_remote_url(url: str) -> bool:
     if not host or parsed.username or parsed.password:
         return False
 
-    if _is_public_ip(host):
+    trusted_hosts = _trusted_attachment_hosts()
+    if _is_public_ip(host) or host in trusted_hosts:
         return True
     if host in {"localhost", "127.0.0.1", "::1"}:
         return False
@@ -110,7 +194,7 @@ async def _is_allowed_remote_url(url: str) -> bool:
         if family not in {socket.AF_INET, socket.AF_INET6}:
             continue
         resolved = True
-        if not _is_public_ip(sockaddr[0]):
+        if not _is_public_ip(sockaddr[0]) and host not in trusted_hosts:
             return False
     return resolved
 
@@ -159,8 +243,11 @@ class AttachmentStore:
         batch_prefix: str | None = None
         idx = 0
 
+        host_overrides = _attachment_host_overrides()
+        insecure_tls_hosts = _insecure_tls_attachment_hosts()
+
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=timeout_s)
+            timeout=aiohttp.ClientTimeout(total=timeout_s),
         ) as session:
             for url in urls:
                 url = (url or "").strip()
@@ -168,10 +255,20 @@ class AttachmentStore:
                     continue
 
                 try:
+                    parsed = urlparse(url)
+                    fetch_url, headers, req_host = _attachment_fetch_request(
+                        url, host_overrides
+                    )
+                    ssl_opt = (
+                        False
+                        if parsed.scheme == "https" and req_host in insecure_tls_hosts
+                        else None
+                    )
                     async with session.get(
-                        url,
-                        headers={"Accept": "image/*"},
+                        fetch_url,
+                        headers=headers,
                         allow_redirects=False,
+                        ssl=ssl_opt,
                     ) as resp:
                         if resp.status >= 400:
                             continue
@@ -220,7 +317,8 @@ class AttachmentStore:
                                 public_url=public_url,
                             )
                         )
-                except Exception:
+                except Exception as exc:
+                    log.debug("Failed to download attachment URL %s: %s", url, exc)
                     continue
 
         return out
