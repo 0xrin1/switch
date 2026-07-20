@@ -39,14 +39,6 @@ def _legacy_dispatchers(domain: str) -> dict[str, dict]:
             "label": "Acorn",
             "direct": True,
         },
-        "oc-codex": {
-            "jid": os.getenv("OC_CODEX_JID", f"oc-codex@{domain}"),
-            "password": os.getenv("OC_CODEX_PASSWORD", os.getenv("XMPP_PASSWORD", "")),
-            "engine": "pi",
-            "agent": "bridge-gpt",
-            "model_id": os.getenv("OC_CODEX_MODEL_ID", "openai/gpt-5.3-codex"),
-            "label": "Codex 5.3",
-        },
         "cc": {
             "jid": os.getenv("CC_JID", f"cc@{domain}"),
             "password": os.getenv("CC_PASSWORD", ""),
@@ -54,23 +46,14 @@ def _legacy_dispatchers(domain: str) -> dict[str, dict]:
             "agent": None,
             "label": "Claude Code",
         },
-        "oc-gpt": {
-            "jid": os.getenv("OC_GPT_JID", f"oc-gpt@{domain}"),
-            "password": os.getenv("OC_GPT_PASSWORD", ""),
-            "engine": "opencode",
+        "pi-gpt": {
+            "jid": os.getenv("PI_GPT_JID", f"pi-gpt@{domain}"),
+            "password": os.getenv("PI_GPT_PASSWORD", os.getenv("XMPP_PASSWORD", "")),
+            "engine": "pi",
             "agent": "bridge-gpt",
-            "model_id": os.getenv("OC_GPT_MODEL_ID", "openai/gpt-5.4"),
-            "reasoning_mode": "high",
-            "label": "GPT 5.4",
-        },
-        "oc-gpt-55": {
-            "jid": os.getenv("OC_GPT_55_JID", f"oc-gpt-55@{domain}"),
-            "password": os.getenv("OC_GPT_55_PASSWORD", os.getenv("XMPP_PASSWORD", "")),
-            "engine": "opencode",
-            "agent": "bridge-gpt",
-            "model_id": os.getenv("OC_GPT_55_MODEL_ID", "openai/gpt-5.5"),
-            "reasoning_mode": "high",
-            "label": "GPT 5.5",
+            "model_id": os.getenv("PI_GPT_MODEL_ID", "openai-codex/gpt-5.6-sol"),
+            "reasoning_mode": "xhigh",
+            "label": "GPT 5.6 Sol",
         },
         "oc": {
             "jid": os.getenv("OC_JID", f"oc@{domain}"),
@@ -187,6 +170,10 @@ def _normalize_dispatchers(payload: object, *, domain: str) -> dict[str, dict]:
         base_url = item.get("base_url")
         if isinstance(base_url, str) and base_url.strip():
             entry["base_url"] = base_url.strip().rstrip("/")
+
+        reasoning_mode = item.get("reasoning_mode")
+        if isinstance(reasoning_mode, str) and reasoning_mode.strip():
+            entry["reasoning_mode"] = reasoning_mode.strip().lower()
 
         if _parse_bool(item.get("direct"), default=False):
             entry["direct"] = True

@@ -42,7 +42,7 @@ XMPP_SERVER = cfg["server"]
 
 def _default_dispatcher_name() -> str:
     # Prefer explicit env override, fall back to a sane default.
-    return (os.getenv("SWITCH_DEFAULT_DISPATCHER") or "oc-gpt").strip() or "oc-gpt"
+    return (os.getenv("SWITCH_DEFAULT_DISPATCHER") or "pi-gpt").strip() or "pi-gpt"
 
 
 def _parse_args(argv: list[str]) -> tuple[str, str] | None:

@@ -22,7 +22,7 @@ flowchart LR
                 direction TB
                 CC["cc@...<br/>(Claude Code)"]
                 OC["oc@...<br/>(OpenCode GLM 4.7 Heretic)"]
-                OCGPT["oc-gpt@...<br/>(OpenCode GPT 5.4)"]
+                PIGPT["pi-gpt@...<br/>(pi GPT 5.6)"]
             end
 
             Sessions["Session Bots<br/>(task-name@...)"]
@@ -161,8 +161,7 @@ Multiple orchestrators, each tied to a specific AI engine:
 |---------|--------|-------|
 | `cc@domain` | Claude Code | Opus |
 | `oc@domain` | OpenCode | GLM 4.7 Heretic |
-| `oc-gpt@domain` | OpenCode | GPT 5.4 |
-| `oc-gpt-55@domain` | OpenCode | GPT 5.5 |
+| `pi-gpt@domain` | pi | GPT 5.6 Sol |
 | `oc-glm-zen@domain` | OpenCode | GLM 4.7 (Zen) |
 | `oc-gpt-or@domain` | OpenCode | GPT 5.2 (OpenRouter) |
 | `oc-kimi-coding@domain` | OpenCode | Kimi K2.6 (Kimi for Coding) |
@@ -200,7 +199,7 @@ to avoid drift.
 
 ## Data Flow
 
-1. **New Session**: Message to orchestrator (cc/oc/oc-gpt) → slugify name → create XMPP account → spawn SessionBot with engine config → process first message
+1. **New Session**: Message to orchestrator (cc/oc/pi-gpt) → slugify name → create XMPP account → spawn SessionBot with engine config → process first message
 
 2. **Continuing Session**: Message to session contact → SessionBot receives → run AI backend → stream response back
 

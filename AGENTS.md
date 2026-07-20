@@ -19,18 +19,18 @@ Always capture findings to memory before spawning handoff sessions.
 When the user asks to spawn, you MUST execute it yourself — don't tell them to run it.
 
 ```bash
-cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/spawn-session.py --dispatcher oc-gpt "HANDOFF: what was done, what's next, key files"
+cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/spawn-session.py --dispatcher <current-dispatcher> "HANDOFF: what was done, what's next, key files"
 ```
 
-Use `--list-dispatchers` to see available engines, `--dispatcher <name>` to pick one.
+Always delegate or spawn through the same dispatcher that created the current session (named in the Switch delegation context). Only use a different dispatcher when the user explicitly requests a different dispatcher or model. Use `--list-dispatchers` to see available engines.
 
 ### Ask Another Agent (Second Opinion)
 
 ```bash
-cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/ask-agent.py --dispatcher oc-gpt "question"
+cd ~/switch && PYTHONPATH=. ~/switch/.venv/bin/python scripts/ask-agent.py --dispatcher <current-dispatcher> "question"
 ```
 
-Use this proactively when you want a second opinion, need model-specific strengths, or want to compare approaches.
+Use this proactively when you want a second opinion. Keep the current dispatcher unless the user explicitly names another dispatcher or model.
 
 ### Close Sessions (not your own)
 

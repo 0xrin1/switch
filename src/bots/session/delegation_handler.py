@@ -22,9 +22,10 @@ class DelegationHandlerMixin:
 
     def _build_delegation_startup_context(self) -> str:
         session = self.sessions.get(self.session_name)
+        current_dispatcher: str | None = None
         if session and session.dispatcher_jid and self.manager:
             dispatcher_jid = session.dispatcher_jid.split("/", 1)[0]
-            for cfg in (self.manager.dispatchers_config or {}).values():
+            for name, cfg in (self.manager.dispatchers_config or {}).items():
                 if not isinstance(cfg, dict):
                     continue
                 jid = str(cfg.get("jid") or "").split("/", 1)[0]
@@ -32,6 +33,7 @@ class DelegationHandlerMixin:
                     continue
                 if cfg.get("delegation_context") is False:
                     return ""
+                current_dispatcher = str(name)
                 break
 
         dispatchers = self._available_delegate_dispatchers()
@@ -39,9 +41,17 @@ class DelegationHandlerMixin:
             return ""
 
         names = ", ".join(sorted(dispatchers.keys()))
+        current_rule = (
+            f"This session is using dispatcher {current_dispatcher}. For every delegation "
+            f"or spawned session, you MUST use --dispatcher {current_dispatcher} as well, "
+            "unless the user explicitly requests a different dispatcher or model. "
+            if current_dispatcher
+            else ""
+        )
         return (
             "[Switch delegation context]\n"
             f"Available dispatchers right now: {names}.\n"
+            f"{current_rule}"
             "When the user asks to delegate to another model, run Switch scripts yourself "
             "(scripts/ask-agent.py or scripts/spawn-session.py with --dispatcher <name>). "
             "Switch does not auto-delegate from chat messages. "

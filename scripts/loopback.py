@@ -83,7 +83,7 @@ def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(
         "--dispatcher",
-        choices=["cc", "oc", "oc-gpt"],
+        choices=["cc", "oc", "pi-gpt"],
         default="cc",
         help="Which dispatcher to test (default: cc)",
     )

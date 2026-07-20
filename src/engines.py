@@ -35,7 +35,7 @@ ENGINE_SPECS = {
     ),
     "cursor": EngineSpec(
         name="cursor",
-        supports_reasoning=False,
+        supports_reasoning=True,
         remote_session_attr="cursor_session_id",
     ),
     "vllm-direct": EngineSpec(

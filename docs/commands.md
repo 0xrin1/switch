@@ -4,7 +4,7 @@ Commands are implemented in `~/switch/src/commands/handlers.py` using decorator-
 
 ## Dispatcher Commands
 
-Send these to the dispatcher bot (`cc@`, `oc@`, or `oc-gpt@`):
+Send these to the dispatcher bot (`cc@`, `oc@`, or `pi-gpt@`):
 
 | Command | Description |
 |---------|-------------|

@@ -30,7 +30,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--dispatcher",
         "-d",
         default=None,
-        help="dispatcher name (default: SWITCH_DEFAULT_DISPATCHER or oc-gpt)",
+        help="dispatcher name (default: SWITCH_DEFAULT_DISPATCHER or pi-gpt)",
     )
     parser.add_argument(
         "--timeout",
@@ -50,7 +50,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _default_dispatcher_name() -> str:
     import os
 
-    return (os.getenv("SWITCH_DEFAULT_DISPATCHER") or "oc-gpt").strip() or "oc-gpt"
+    return (os.getenv("SWITCH_DEFAULT_DISPATCHER") or "pi-gpt").strip() or "pi-gpt"
 
 
 def _open_db() -> sqlite3.Connection:

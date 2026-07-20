@@ -53,7 +53,7 @@ flowchart LR
                 direction TB
                 CC["cc@...<br/>(Claude Code)"]
                 OC["oc@...<br/>(OpenCode GLM 4.7 Heretic)"]
-                OCGPT["oc-gpt@...<br/>(OpenCode GPT 5.4)"]
+                PIGPT["pi-gpt@...<br/>(pi GPT 5.6)"]
             end
 
             Sessions["Session Bots<br/>(task-name@...)"]
@@ -111,7 +111,7 @@ Switch between engines mid-session with `/agent cc`, `/agent oc`, or `/agent pi`
 
 ## Usage
 
-**Dispatcher commands** (send to orchestrator contacts like `cc@...`, `oc-gpt@...`):
+**Dispatcher commands** (send to orchestrator contacts like `cc@...`, `pi-gpt@...`):
 
 | Command | Effect |
 |---------|--------|

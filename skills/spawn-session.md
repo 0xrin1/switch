@@ -51,13 +51,13 @@ If yes, use the memory skills to persist discoveries before spawning:
 
 ## Usage
 
-    cd ~/switch && scripts/spawn-session --dispatcher oc-gpt "<handoff message>"
+    cd ~/switch && scripts/spawn-session --dispatcher pi-gpt "<handoff message>"
 
 ## Formatting the Handoff Message
 
 Combine the template into a single message for the new session:
 
-    cd ~/switch && scripts/spawn-session --dispatcher oc-gpt "HANDOFF FROM PREVIOUS SESSION
+    cd ~/switch && scripts/spawn-session --dispatcher pi-gpt "HANDOFF FROM PREVIOUS SESSION
 
     COMPLETED
     - Implemented X in src/foo.py
@@ -83,7 +83,7 @@ Combine the template into a single message for the new session:
 
 For straightforward handoffs without much context:
 
-    cd ~/switch && scripts/spawn-session --dispatcher oc-gpt "Continue [project].
+    cd ~/switch && scripts/spawn-session --dispatcher pi-gpt "Continue [project].
 
     Done: [brief summary]
     Next: [what to do]
@@ -103,7 +103,7 @@ This prints the currently available delegation targets so agents can map request
 like "ask gemini" to a configured dispatcher name.
 
 Default dispatcher:
-- `scripts/spawn-session` defaults to `oc-gpt`.
+- `scripts/spawn-session` defaults to `pi-gpt`.
 - Override with `SWITCH_DEFAULT_DISPATCHER` or pass `--dispatcher <name>`.
 
 ## Important Notes
