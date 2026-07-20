@@ -5,6 +5,21 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+PI_THINKING_LEVELS = frozenset(
+    {"off", "minimal", "low", "medium", "high", "xhigh"}
+)
+
+
+def resolve_thinking_level(reasoning_mode: str | None) -> str | None:
+    """Map session reasoning_mode to Pi --thinking (override Pi settings default)."""
+    mode = (reasoning_mode or "").strip().lower()
+    if mode in PI_THINKING_LEVELS:
+        return mode
+    if mode in {"", "normal"}:
+        default = (os.getenv("SWITCH_PI_DEFAULT_THINKING") or "medium").strip().lower()
+        return default if default in PI_THINKING_LEVELS else "medium"
+    return None
+
 
 @dataclass(frozen=True)
 class PiConfig:

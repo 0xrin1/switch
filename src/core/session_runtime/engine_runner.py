@@ -204,12 +204,18 @@ class EngineRunnerMixin:
                 ),
             )
         elif engine == "pi":
+            from src.runners.pi.config import resolve_thinking_level
+
+            pi_thinking = resolve_thinking_level(session.reasoning_mode)
             self.runner = self._runner_factory.create(
                 "pi",
                 working_dir=self.working_dir,
                 output_dir=self.output_dir,
                 session_name=self.session_name,
-                pi_config=pi_config or PiConfig(model=session.model_id or None),
+                pi_config=pi_config or PiConfig(
+                    model=session.model_id or None,
+                    thinking=pi_thinking,
+                ),
             )
         elif engine == "cursor":
             self.runner = self._runner_factory.create(

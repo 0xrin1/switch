@@ -9,6 +9,8 @@ import time
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
+from src.model_traits import is_vllm_served
+
 if TYPE_CHECKING:
     from src.db import SessionRepository
 
@@ -27,7 +29,7 @@ class VllmAbortMixin:
 
         This is intentionally conservative:
         - Only triggers for sessions using vLLM-backed models (Pi, OpenCode, vllm-direct)
-        - Only triggers for known vLLM-backed models (glm_vllm/, heretic_local/, heretic-v2, etc.)
+        - Only triggers for known vLLM-served models (see src/model_traits.py)
         - Cooldown + single in-flight task to avoid request storms
         """
 
@@ -46,14 +48,7 @@ class VllmAbortMixin:
         if engine not in vllm_engines:
             return
 
-        # Check if this is a vLLM-backed model
-        is_vllm_model = (
-            model_id.startswith("glm_vllm/")
-            or model_id.startswith("heretic_local/")
-            or "heretic" in model_id.lower()
-            or model_id.startswith("qwen35-")  # Heretic models often use qwen35 prefix
-        )
-        if not is_vllm_model:
+        if not is_vllm_served(model_id):
             return
 
         # Avoid spamming this if multiple cancellation paths fire.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.commands.mixins.base import CommandMixinBase
 from src.commands.registry import command
 from src.engines import normalize_engine, reasoning_engine_names
+from src.runners.cursor.config import parse_model_variant, resolve_model_variant
 
 
 class EngineCommandsMixin(CommandMixinBase):
@@ -27,12 +28,8 @@ class EngineCommandsMixin(CommandMixinBase):
 
     @command("/thinking", exact=False)
     async def thinking(self, body: str) -> bool:
-        """Set reasoning mode."""
+        """Show or set the model's reasoning effort."""
         parts = body.strip().lower().split()
-        if len(parts) < 2 or parts[1] not in ("normal", "high"):
-            self.bot.send_reply("Usage: /thinking normal|high")
-            return True
-
         session = self.bot.sessions.get(self.bot.session_name)
         if not session:
             self.bot.send_reply("Session not found.")
@@ -43,8 +40,60 @@ class EngineCommandsMixin(CommandMixinBase):
             self.bot.send_reply("/thinking only applies to reasoning-capable sessions.")
             return True
 
-        await self.bot.sessions.update_reasoning_mode(self.bot.session_name, parts[1])
-        self.bot.send_reply(f"Reasoning mode set to {parts[1]}.")
+        if len(parts) < 2:
+            variant = parse_model_variant(session.model_id) if engine == "cursor" else None
+            mode = variant.thinking if variant else session.reasoning_mode
+            self.bot.send_reply(f"Thinking: {mode}")
+            return True
+
+        mode = parts[1]
+        allowed = {
+            "cursor": ("low", "medium", "high"),
+            "pi": ("off", "minimal", "low", "medium", "high", "xhigh"),
+            "opencode": ("normal", "high"),
+        }.get(engine, ("normal", "high"))
+        if mode not in allowed:
+            self.bot.send_reply(f"Usage: /thinking {'|'.join(allowed)}")
+            return True
+
+        if engine == "cursor":
+            model_id = resolve_model_variant(session.model_id, thinking=mode)
+            if model_id is None:
+                self.bot.send_reply(
+                    "This Cursor model does not expose configurable thinking levels."
+                )
+                return True
+            await self.bot.sessions.update_model(self.bot.session_name, model_id)
+
+        await self.bot.sessions.update_reasoning_mode(self.bot.session_name, mode)
+        self.bot.send_reply(f"Thinking: {mode}")
+        return True
+
+    @command("/speed", exact=False)
+    async def speed(self, body: str) -> bool:
+        """Show or set the speed variant for models that provide one."""
+        parts = body.strip().lower().split()
+        session = self.bot.sessions.get(self.bot.session_name)
+        if not session:
+            self.bot.send_reply("Session not found.")
+            return True
+
+        variant = parse_model_variant(session.model_id)
+        if (session.active_engine or "").strip().lower() != "cursor" or variant is None:
+            self.bot.send_reply("This model does not expose configurable speed variants.")
+            return True
+
+        if len(parts) < 2:
+            self.bot.send_reply(f"Speed: {'fast' if variant.fast else 'standard'}")
+            return True
+        if parts[1] not in {"standard", "fast"}:
+            self.bot.send_reply("Usage: /speed standard|fast")
+            return True
+
+        model_id = resolve_model_variant(session.model_id, fast=parts[1] == "fast")
+        assert model_id is not None
+        await self.bot.sessions.update_model(self.bot.session_name, model_id)
+        self.bot.send_reply(f"Speed: {parts[1]}")
         return True
 
     @command("/model", exact=False)

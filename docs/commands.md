@@ -24,8 +24,10 @@ Send these to a session contact (`session-name@domain`):
 |---------|-------------|
 | `/agent oc` | Switch to OpenCode backend |
 | `/agent cc` | Switch to Claude backend |
-| `/model <id>` | Set OpenCode model (e.g., `openai/gpt-4o`) |
-| `/thinking normal\|high` | Set OpenCode reasoning mode |
+| `/agent cursor` | Switch to Cursor Agent backend |
+| `/model <id>` | Set the backend model ID |
+| `/thinking [level]` | Show or set reasoning effort (levels depend on backend/model) |
+| `/speed [standard\|fast]` | Show or set speed for models with selectable variants |
 | `/reset` | Clear session context (start fresh) |
 
 ### Execution Control
