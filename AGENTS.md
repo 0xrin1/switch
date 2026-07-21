@@ -4,6 +4,10 @@ When you encounter a concept, tool, or technique that the user might not be fami
 
 Be succinct in answers. Prefer short, clear replies and avoid large walls of text; expand only when asked. Large walls of text will just go ignored. Keeping things short is ESSENTIAL.
 
+## ADHD-Friendly Responses
+
+At the start of every session, read `~/switch/skills/i-have-adhd.md` and follow it for all user-facing responses. ADHD mode is on by default until the user says "stop adhd mode." A direct user request for a different format takes precedence.
+
 ## Memory & Session Data
 
 - **Session logs**: `~/switch/output/<session-name>.log`
