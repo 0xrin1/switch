@@ -97,17 +97,14 @@ class PiEventProcessor:
                 return ("text", delta)
 
         if ame_type == "toolcall_start":
+            # Count the call here, but do not emit progress yet. Pi follows this
+            # event with tool_execution_start, which has the authoritative tool
+            # name and complete arguments. Emitting both events duplicated every
+            # call, and the shared progress throttler then discarded most of the
+            # useful execution events while surfacing placeholders like
+            # "[tool:?]" instead.
             state.tool_count += 1
-            # Tool name is nested in partial.content[].name
-            name = "?"
-            partial = ame.get("partial", {})
-            for block in (partial.get("content") or []):
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    name = block.get("name", "?")
-                    break
-            desc = f"[tool:{name}]"
-            self._log_to_file(f"{desc}\n")
-            return ("tool", desc)
+            return None
 
         if ame_type == "toolcall_delta":
             # Streaming tool arguments — skip for now, we get full info at execution.
