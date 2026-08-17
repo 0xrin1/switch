@@ -13,6 +13,14 @@ from typing import AsyncIterator, Awaitable, Callable, Protocol
 RunnerEvent = tuple[str, object]
 
 
+@dataclass(frozen=True)
+class ToolResult:
+    """Compact transcript summary plus optional expandable full result."""
+
+    summary: str
+    full_text: str | None = None
+
+
 @dataclass
 class Question:
     """A question from the AI to the user."""

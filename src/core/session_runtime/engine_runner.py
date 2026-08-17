@@ -10,6 +10,7 @@ from src.runners.claude.config import ClaudeConfig
 from src.runners.cursor.config import CursorConfig
 from src.runners.opencode.config import OpenCodeConfig
 from src.runners.pi.config import PiConfig
+from src.runners.ports import ToolResult
 
 from src.core.session_runtime.api import OutboundMessage
 from src.core.session_runtime.ports import SessionState
@@ -357,12 +358,28 @@ class EngineRunnerMixin:
     async def _emit_text(self, text: str) -> None:
         await self._emit(OutboundMessage(text))
 
-    async def _emit_runner_tool_result(self, content: str) -> None:
+    async def _emit_runner_tool_result(self, result: ToolResult) -> None:
+        payload = None
+        if result.full_text:
+            try:
+                detail_max = int(
+                    os.getenv("SWITCH_TOOL_RESULT_DETAIL_MAX_LEN", "20000") or "20000"
+                )
+            except ValueError:
+                detail_max = 20000
+            detail_max = max(1000, min(detail_max, 100000))
+            full_text = f"... {result.full_text}"
+            if len(full_text) > detail_max:
+                suffix = "\n... [full output capped]"
+                full_text = full_text[: detail_max - len(suffix)] + suffix
+            payload = {"full_text": full_text}
+
         await self._emit(
             OutboundMessage(
-                f"... {content}",
+                f"... {result.summary}",
                 meta_type="tool-result",
-                meta_tool=self._infer_meta_tool_from_summary(content),
+                meta_tool=self._infer_meta_tool_from_summary(result.summary),
+                meta_payload=payload,
             )
         )
 

@@ -12,7 +12,7 @@ from typing import Callable
 
 from src.runners.base import RunState
 from src.runners.pi.loop_detection import LoopGuardHit, PiToolLoopDetector
-from src.runners.ports import RunnerEvent
+from src.runners.ports import RunnerEvent, ToolResult
 
 Event = RunnerEvent
 
@@ -172,29 +172,38 @@ class PiEventProcessor:
             result_obj = event.get("result", {})
             result_content = result_obj.get("content") if isinstance(result_obj, dict) else event.get("content")
             pieces: list[str] = []
+            full_pieces: list[str] = []
 
             exit_code = event.get("exitCode")
             if exit_code is not None:
-                pieces.append(f"exit={exit_code}")
+                status = f"exit={exit_code}"
+                pieces.append(status)
+                full_pieces.append(status)
 
             if isinstance(result_content, list):
                 for part in result_content:
                     if isinstance(part, dict) and part.get("type") == "text":
                         text = str(part.get("text", "")).strip()
                         if text:
-                            if len(text) > 180:
-                                text = text[:177] + "..."
-                            pieces.append(text)
+                            preview = text[:177] + "..." if len(text) > 180 else text
+                            pieces.append(preview)
+                            full_pieces.append(text)
                             break
 
             is_error = event.get("isError", False)
             if is_error:
                 pieces.append("ERROR")
+                full_pieces.append("ERROR")
 
             suffix = f" {' | '.join(pieces)}" if pieces else ""
+            full_suffix = f" {' | '.join(full_pieces)}" if full_pieces else ""
             desc = f"[tool-result:{name}{suffix}]"
+            full_desc = f"[tool-result:{name}{full_suffix}]"
             self._log_to_file(f"{desc}\n")
-            return ("tool_result", desc)
+            return (
+                "tool_result",
+                ToolResult(desc, full_desc if full_desc != desc else None),
+            )
 
         return None
 

@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
-from src.runners.ports import Runner
+from src.runners.ports import Runner, ToolResult
 
 log = logging.getLogger("session_runtime.runner_loop")
 
@@ -31,7 +31,7 @@ class RunnerEventLoopState:
 class RunnerEventHandlers:
     save_session_id: Callable[[str], Awaitable[None]] | None
     handle_tool: Callable[[str, list[str], int], Awaitable[int]]
-    emit_tool_result: Callable[[str], Awaitable[None]]
+    emit_tool_result: Callable[[ToolResult], Awaitable[None]]
     on_result: Callable[[object, RunnerEventLoopState], Awaitable[None]]
     on_error: Callable[[object], Awaitable[None]]
     on_cancelled: Callable[[], Awaitable[None]]
@@ -62,7 +62,7 @@ def build_ralph_handlers(
     *,
     save_session_id: Callable[[str], Awaitable[None]] | None,
     handle_tool: Callable[[str, list[str], int], Awaitable[int]],
-    emit_tool_result: Callable[[str], Awaitable[None]],
+    emit_tool_result: Callable[[ToolResult], Awaitable[None]],
 ) -> RunnerEventHandlers:
     async def on_result(content: object, _state: RunnerEventLoopState) -> None:
         if isinstance(content, dict):
@@ -91,7 +91,7 @@ def build_engine_handlers(
     *,
     save_session_id: Callable[[str], Awaitable[None]] | None,
     handle_tool: Callable[[str, list[str], int], Awaitable[int]],
-    emit_tool_result: Callable[[str], Awaitable[None]],
+    emit_tool_result: Callable[[ToolResult], Awaitable[None]],
     send_result: Callable[[object, RunnerEventLoopState], Awaitable[None]],
     emit_text: Callable[[str], Awaitable[None]],
     should_abort: Callable[[], bool] = _never_abort,
@@ -156,8 +156,12 @@ async def run_runner_event_loop(
                     state.last_progress_at = await handlers.handle_tool(
                         tool_content, state.tool_summaries, state.last_progress_at
                     )
+                case ("tool_result", ToolResult() as result):
+                    await handlers.emit_tool_result(result)
                 case ("tool_result", str(result_content)):
-                    await handlers.emit_tool_result(result_content)
+                    # Backward compatibility for runners without expandable
+                    # result support.
+                    await handlers.emit_tool_result(ToolResult(result_content))
                 case ("result", _):
                     await handlers.on_result(content, state)
                 case ("error", _):

@@ -7,13 +7,14 @@ from typing import Callable
 
 from src.runners.base import RunState
 from src.runners.opencode.models import Event, PermissionRequest, Question
+from src.runners.ports import ToolResult
 from src.runners.opencode.text_sanitize import sanitize_assistant_text
 from src.runners.opencode.tool_format import (
     extract_desc_parts,
     extract_task_ref,
     extract_tool_input,
     format_tool_header,
-    format_tool_result_suffix,
+    format_tool_result_suffixes,
 )
 from src.runners.tool_logging import (
     format_tool_input_preview,
@@ -246,10 +247,16 @@ def handle_tool_result(
         state.tool_result_seen_ids.add(tool_id)
 
     state_obj = part.get("state")
-    suffix = format_tool_result_suffix(tool_str, part=part, state_obj=state_obj)
+    suffix, full_suffix = format_tool_result_suffixes(
+        tool_str, part=part, state_obj=state_obj
+    )
     desc = f"[tool-result:{tool_str}{suffix}]"
+    full_desc = f"[tool-result:{tool_str}{full_suffix}]"
     log_to_file(f"{desc}\n")
-    return ("tool_result", desc)
+    return (
+        "tool_result",
+        ToolResult(desc, full_desc if full_desc != desc else None),
+    )
 
 
 def handle_step_finish(

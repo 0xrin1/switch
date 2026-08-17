@@ -156,12 +156,12 @@ def format_tool_header(
     return desc, bool(extra)
 
 
-def format_tool_result_suffix(
+def format_tool_result_suffixes(
     tool_str: str,
     *,
     part: dict,
     state_obj: object,
-) -> str:
+) -> tuple[str, str]:
     exit_code = pick(part, ("exitCode", "exit_code", "code"))
     if exit_code is None:
         exit_code = pick(state_obj, ("exitCode", "exit_code", "code"))
@@ -182,6 +182,7 @@ def format_tool_result_suffix(
         )
 
     pieces: list[str] = []
+    full_pieces: list[str] = []
 
     if tool_str == "task":
         task_ref = None
@@ -200,21 +201,30 @@ def format_tool_result_suffix(
                     task_ref = value.strip()
                     break
         if task_ref:
-            pieces.append(f"child={task_ref}")
+            child = f"child={task_ref}"
+            pieces.append(child)
+            full_pieces.append(child)
 
     if exit_code is not None:
-        pieces.append(f"exit={exit_code}")
+        exit_status = f"exit={exit_code}"
+        pieces.append(exit_status)
+        full_pieces.append(exit_status)
 
     if isinstance(output, str):
-        compact = " ".join(output.split())
+        full_output = output.strip()
+        compact = " ".join(full_output.split())
         if compact:
-            if len(compact) > 180:
-                compact = compact[:177] + "..."
-            pieces.append(compact)
+            preview = compact[:177] + "..." if len(compact) > 180 else compact
+            pieces.append(preview)
+            full_pieces.append(full_output)
 
     if not pieces:
         status = pick(part, ("status",)) or pick(state_obj, ("status",))
         if isinstance(status, str) and status.strip():
-            pieces.append(status.strip())
+            clean_status = status.strip()
+            pieces.append(clean_status)
+            full_pieces.append(clean_status)
 
-    return f" {' | '.join(pieces)}" if pieces else ""
+    preview_suffix = f" {' | '.join(pieces)}" if pieces else ""
+    full_suffix = f" {' | '.join(full_pieces)}" if full_pieces else ""
+    return preview_suffix, full_suffix
