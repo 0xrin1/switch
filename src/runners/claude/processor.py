@@ -162,13 +162,15 @@ class ClaudeEventProcessor:
         cost = event.get("total_cost_usd", 0)
         turns = event.get("num_turns", 0)
         duration = event.get("duration_ms", 0) / 1000
+        api_duration = event.get("duration_api_ms", 0) / 1000
 
         usage = event.get("usage", {})
+        tokens_in = int(usage.get("input_tokens", 0) or 0)
+        tokens_out = int(usage.get("output_tokens", 0) or 0)
+        tokens_cache_write = int(usage.get("cache_creation_input_tokens", 0) or 0)
+        tokens_cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
         total_tokens = (
-            usage.get("input_tokens", 0)
-            + usage.get("cache_creation_input_tokens", 0)
-            + usage.get("cache_read_input_tokens", 0)
-            + usage.get("output_tokens", 0)
+            tokens_in + tokens_out + tokens_cache_write + tokens_cache_read
         )
 
         context_window = 200000
@@ -190,10 +192,16 @@ class ClaudeEventProcessor:
             "model": model_name,
             "turns": turns,
             "tool_count": state.tool_count,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "tokens_reasoning": 0,
+            "tokens_cache_read": tokens_cache_read,
+            "tokens_cache_write": tokens_cache_write,
             "tokens_total": total_tokens,
             "context_window": context_window,
             "cost_usd": float(cost),
             "duration_s": float(duration),
+            "generation_duration_s": float(api_duration),
             "text": state.text,
             "summary": summary,
         }

@@ -137,6 +137,7 @@ class SessionManager:
                 reasoning_mode=cfg.get("reasoning_mode", "normal"),
                 agent=cfg.get("agent"),
                 label=cfg["label"],
+                system_prompt_extra=cfg.get("system_prompt_extra"),
             )
             dispatcher.connect_to_server(self.xmpp_server)
             self.dispatchers[name] = dispatcher

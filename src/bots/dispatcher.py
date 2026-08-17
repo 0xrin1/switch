@@ -53,6 +53,7 @@ class DispatcherBot(BaseXMPPBot):
         reasoning_mode: str = "normal",
         agent: str | None = None,
         label: str = "Pi",
+        system_prompt_extra: str | None = None,
     ):
         super().__init__(jid, password)
         # Initialize logger early because Slixmpp can deliver stanzas before
@@ -70,6 +71,7 @@ class DispatcherBot(BaseXMPPBot):
         self.reasoning_mode = reasoning_mode
         self.agent = agent
         self.label = label
+        self.system_prompt_extra = system_prompt_extra
 
         self.add_event_handler("session_start", self.on_start)
         self.add_event_handler("message", self.on_message)
@@ -483,6 +485,7 @@ class DispatcherBot(BaseXMPPBot):
                 opencode_agent=self.agent,
                 label=self.label,
                 name_hint="ralph",
+                system_prompt_extra=self.system_prompt_extra,
                 announce="Ralph session '{name}' ({label}). Starting loop...",
                 dispatcher_jid=str(self.boundjid.bare),
                 owner_jid=reply_to,
@@ -546,6 +549,7 @@ class DispatcherBot(BaseXMPPBot):
             reasoning_mode=self.reasoning_mode,
             opencode_agent=self.agent,
             label=self.label,
+            system_prompt_extra=self.system_prompt_extra,
             on_reserved=lambda n: self.send_reply(
                 f"Creating: {n} ({self.label})...", recipient=reply_to
             ),

@@ -156,6 +156,7 @@ async def create_session(
     dispatcher_jid: str | None = None,
     owner_jid: str | None = None,
     collaborators: list[str] | None = None,
+    system_prompt_extra: str | None = None,
 ) -> str | None:
     """Create a session and start its bot.
 
@@ -222,6 +223,7 @@ async def create_session(
         dispatcher_jid=dispatcher_jid,
         owner_jid=recipient,
         room_jid=room_jid,
+        system_prompt_extra=system_prompt_extra,
     )
     await manager.sessions.set_collaborators(name, collab_members)
 

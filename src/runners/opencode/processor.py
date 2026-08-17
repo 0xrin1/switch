@@ -54,6 +54,7 @@ class OpenCodeEventProcessor:
             "tokens_cache_write": state.tokens_cache_write,
             "cost_usd": float(state.cost),
             "duration_s": float(state.duration_s),
+            "generation_duration_s": float(state.generation_duration_s),
             "text": state.text,
             "summary": (
                 f"[{model_short} {state.tokens_in}/{state.tokens_out} tok"

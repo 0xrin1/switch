@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Callable
 
 from src.runners.base import RunState
@@ -33,14 +34,25 @@ def apply_text_update(text: str, state: RunState) -> Event | None:
         delta = text[len(state.text) :]
         state.text = text
         if delta:
+            if state.generation_started_at is None:
+                state.generation_started_at = time.monotonic()
             return ("text", delta)
         return None
 
     state.text = text
+    if state.generation_started_at is None:
+        state.generation_started_at = time.monotonic()
     return ("text", text)
 
 
 def handle_step_start(event: dict, state: RunState) -> Event | None:
+    # OpenCode exposes model-step boundaries but not a reliable first-token
+    # event for every reasoning/tool-call response. Time the complete model
+    # step so tool execution between steps is excluded without understating
+    # calls that emit no visible text.
+    if state.generation_started_at is None:
+        state.generation_started_at = time.monotonic()
+
     session_id = event.get("sessionID")
     if isinstance(session_id, str) and session_id:
         state.session_id = session_id
@@ -115,6 +127,8 @@ def handle_message_part_delta(event: dict, state: RunState) -> Event | None:
     state.text = visible_text
     if not delta:
         return None
+    if state.generation_started_at is None:
+        state.generation_started_at = time.monotonic()
     return ("text", delta)
 
 
@@ -252,13 +266,21 @@ def handle_step_finish(
     if isinstance(tokens, dict):
         cache = tokens.get("cache", {})
         state.tokens_in += int(tokens.get("input", 0) or 0)
-        state.tokens_out += int(tokens.get("output", 0) or 0)
-        state.tokens_reasoning += int(tokens.get("reasoning", 0) or 0)
+        output = int(tokens.get("output", 0) or 0)
+        reasoning = int(tokens.get("reasoning", 0) or 0)
+        state.tokens_out += output
+        state.tokens_reasoning += reasoning
+        state.generation_tokens += output + reasoning
         if isinstance(cache, dict):
             state.tokens_cache_read += int(cache.get("read", 0) or 0)
             state.tokens_cache_write += int(cache.get("write", 0) or 0)
 
     state.cost += float(part.get("cost", 0) or 0)
+    if state.generation_started_at is not None:
+        state.generation_duration_s += max(
+            0.0, time.monotonic() - state.generation_started_at
+        )
+        state.generation_started_at = None
 
     if part.get("reason") == "stop":
         state.saw_result = True

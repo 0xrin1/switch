@@ -145,8 +145,10 @@ class VLLMDirectRunner(BaseRunner):
         log.info("vLLM direct: %s", prompt[:80])
 
         try:
+            started_at = time.monotonic()
             self._request_task = asyncio.create_task(self._post_chat(prompt))
             payload = await self._request_task
+            duration_s = time.monotonic() - started_at
             if self._cancel_requested:
                 yield ("cancelled", None)
                 return
@@ -158,9 +160,11 @@ class VLLMDirectRunner(BaseRunner):
 
             usage = payload.get("usage") if isinstance(payload, dict) else {}
             stats = {
+                "engine": "vllm-direct",
+                "model": self._model,
                 "text": text,
                 "cost_usd": 0.0,
-                "duration_ms": int(time.time() * 1000),
+                "duration_s": duration_s,
             }
             if isinstance(usage, dict):
                 for src, dst in (
@@ -171,6 +175,10 @@ class VLLMDirectRunner(BaseRunner):
                     value = usage.get(src)
                     if isinstance(value, int):
                         stats[dst] = value
+            stats["summary"] = (
+                f"[{self._model} {stats.get('tokens_in', 0)}/{stats.get('tokens_out', 0)} tok"
+                f" {duration_s:.1f}s]"
+            )
             yield ("result", stats)
         except asyncio.CancelledError:
             self._log_response("Cancelled.")

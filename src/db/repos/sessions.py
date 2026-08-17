@@ -26,6 +26,7 @@ class Session:
     vllm_base_url: str | None
     reasoning_mode: str
     opencode_agent: str | None
+    system_prompt_extra: str | None
     dispatcher_jid: str | None
     owner_jid: str | None
     room_jid: str | None
@@ -89,6 +90,9 @@ class SessionRepository:
             reasoning_mode=row["reasoning_mode"] or "normal",
             opencode_agent=row["opencode_agent"]
             if "opencode_agent" in row.keys()
+            else None,
+            system_prompt_extra=row["system_prompt_extra"]
+            if "system_prompt_extra" in row.keys()
             else None,
             dispatcher_jid=row["dispatcher_jid"]
             if "dispatcher_jid" in row.keys()
@@ -228,6 +232,7 @@ class SessionRepository:
         dispatcher_jid: str | None = None,
         owner_jid: str | None = None,
         room_jid: str | None = None,
+        system_prompt_extra: str | None = None,
     ) -> Session:
         owner_bare = (owner_jid or "").split("/", 1)[0] or None
         room_bare = (room_jid or "").split("/", 1)[0] or None
@@ -236,8 +241,8 @@ class SessionRepository:
             self.conn.execute(
                 """INSERT INTO sessions
                    (name, xmpp_jid, xmpp_password, tmux_name, created_at, last_active,
-                    model_id, vllm_base_url, active_engine, reasoning_mode, opencode_agent, dispatcher_jid, owner_jid, room_jid)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    model_id, vllm_base_url, active_engine, reasoning_mode, opencode_agent, dispatcher_jid, owner_jid, room_jid, system_prompt_extra)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     name,
                     xmpp_jid,
@@ -253,6 +258,7 @@ class SessionRepository:
                     dispatcher_jid,
                     owner_bare,
                     room_bare,
+                    system_prompt_extra,
                 ),
             )
             self.conn.commit()

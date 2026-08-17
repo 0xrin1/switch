@@ -29,6 +29,7 @@ class SessionState:
     model_id: str | None
     reasoning_mode: str
     opencode_agent: str | None
+    system_prompt_extra: str | None = None
 
 
 class SessionStorePort(Protocol):

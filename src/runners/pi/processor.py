@@ -6,6 +6,7 @@ expects: ("session_id"|"text"|"tool"|"tool_result"|"result"|"error", data).
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -76,6 +77,18 @@ class PiEventProcessor:
             return None
 
         ame_type = ame.get("type")
+
+        # Start the decode clock at the first streamed assistant delta, not at
+        # request start. This excludes prompt prefill/TTFT and tool execution.
+        if ame_type in {
+            "text_start",
+            "text_delta",
+            "thinking_start",
+            "thinking_delta",
+            "toolcall_start",
+            "toolcall_delta",
+        } and state.generation_started_at is None:
+            state.generation_started_at = time.monotonic()
 
         if ame_type == "text_delta":
             delta = ame.get("delta", "") or ame.get("text", "")
@@ -209,9 +222,29 @@ class PiEventProcessor:
 
     def _handle_message_end(self, event: dict, state: RunState) -> list[Event]:
         events: list[Event] = []
+        message = event.get("message")
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            usage = message.get("usage")
+            if isinstance(usage, dict):
+                state.tokens_in += int(usage.get("input", 0) or 0)
+                output = int(usage.get("output", 0) or 0)
+                state.tokens_out += output
+                state.tokens_cache_read += int(usage.get("cacheRead", 0) or 0)
+                state.tokens_cache_write += int(usage.get("cacheWrite", 0) or 0)
+                state.generation_tokens += output
+                cost = usage.get("cost")
+                if isinstance(cost, dict):
+                    state.cost += float(cost.get("total", 0) or 0)
+
+            if state.generation_started_at is not None:
+                state.generation_duration_s += max(
+                    0.0, time.monotonic() - state.generation_started_at
+                )
+                state.generation_started_at = None
+
         if state.text:
             return events
-        error = _assistant_terminal_error(event.get("message"))
+        error = _assistant_terminal_error(message)
         if error:
             events.append(self._record_terminal_error(error, state))
         return events
@@ -227,11 +260,23 @@ class PiEventProcessor:
         if not isinstance(tokens, dict):
             tokens = {}
         # Fall back to top-level keys for backwards compat.
-        tokens_in = int(tokens.get("input", 0) or usage.get("input", 0) or 0)
-        tokens_out = int(tokens.get("output", 0) or usage.get("output", 0) or 0)
-        tokens_cache_read = int(tokens.get("cacheRead", 0) or usage.get("cacheRead", 0) or 0)
-        tokens_cache_write = int(tokens.get("cacheWrite", 0) or usage.get("cacheWrite", 0) or 0)
+        tokens_in = int(tokens.get("input", 0) or usage.get("input", 0) or state.tokens_in)
+        tokens_out = int(tokens.get("output", 0) or usage.get("output", 0) or state.tokens_out)
+        tokens_cache_read = int(
+            tokens.get("cacheRead", 0)
+            or usage.get("cacheRead", 0)
+            or state.tokens_cache_read
+        )
+        tokens_cache_write = int(
+            tokens.get("cacheWrite", 0)
+            or usage.get("cacheWrite", 0)
+            or state.tokens_cache_write
+        )
         tokens_total = int(tokens.get("total", 0) or usage.get("total", 0) or 0)
+        if tokens_total <= 0:
+            tokens_total = (
+                tokens_in + tokens_out + tokens_cache_read + tokens_cache_write
+            )
 
         cost_info = usage.get("cost", {})
         cost_usd = 0.0
@@ -241,10 +286,15 @@ class PiEventProcessor:
                     cost_usd += float(v)
         elif isinstance(cost_info, (int, float)):
             cost_usd = float(cost_info)
+        if cost_usd <= 0:
+            cost_usd = float(state.cost)
 
         model = str(usage.get("model", "pi") or "pi")
+        context_usage = usage.get("contextUsage")
+        if not isinstance(context_usage, dict):
+            context_usage = {}
 
-        return {
+        result = {
             "engine": "pi",
             "model": model,
             "session_id": state.session_id,
@@ -257,6 +307,7 @@ class PiEventProcessor:
             "tokens_total": tokens_total,
             "cost_usd": cost_usd,
             "duration_s": float(state.duration_s),
+            "generation_duration_s": float(state.generation_duration_s),
             "text": state.text,
             "summary": (
                 f"[pi {tokens_in}/{tokens_out} tok"
@@ -264,6 +315,17 @@ class PiEventProcessor:
                 f" ${cost_usd:.3f} {state.duration_s:.1f}s]"
             ),
         }
+        for key in ("session_tokens_total", "session_cost_total"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)):
+                result[key] = value
+        context_fields = {
+            "context_tokens": context_usage.get("tokens"),
+            "context_window": context_usage.get("contextWindow"),
+            "context_percent": context_usage.get("percent"),
+        }
+        result.update({k: v for k, v in context_fields.items() if v is not None})
+        return result
 
     def parse_event(self, event: dict, state: RunState) -> list[Event]:
         event_type = event.get("type")

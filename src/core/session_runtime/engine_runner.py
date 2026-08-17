@@ -65,6 +65,11 @@ class EngineRunnerMixin:
         duration_s = self._as_non_negative_float(stats.get("duration_s"))
         if duration_s is None or duration_s <= 0:
             return
+        generation_duration_s = self._as_non_negative_float(
+            stats.get("generation_duration_s")
+        )
+        if generation_duration_s is None or generation_duration_s <= 0:
+            generation_duration_s = duration_s
 
         output_tokens = self._as_non_negative_int(stats.get("tokens_out")) or 0
         reasoning_tokens = self._as_non_negative_int(stats.get("tokens_reasoning")) or 0
@@ -94,8 +99,8 @@ class EngineRunnerMixin:
         if engine == "claude" and total_tokens_i is not None:
             processed_tokens = total_tokens_i
 
-        tps_output = self._safe_tps(output_tokens, duration_s)
-        tps_generated = self._safe_tps(generated_tokens, duration_s)
+        tps_output = self._safe_tps(output_tokens, generation_duration_s)
+        tps_generated = self._safe_tps(generated_tokens, generation_duration_s)
         tps_processed = self._safe_tps(processed_tokens, duration_s)
         tps_total = self._safe_tps(total_tokens_i, duration_s)
 
@@ -156,17 +161,27 @@ class EngineRunnerMixin:
         return total
 
     def _update_usage_totals(self, engine: str, stats: dict) -> None:
-        tokens = self._extract_run_tokens(engine, stats)
-        if tokens > 0:
-            self._usage_tokens_total[engine] = (
-                int(self._usage_tokens_total.get(engine, 0)) + tokens
-            )
+        # Some runners (notably Pi) can provide authoritative persisted-session
+        # totals. Prefer those over summing local process-lifetime counters.
+        session_tokens = stats.get("session_tokens_total")
+        if isinstance(session_tokens, (int, float)) and session_tokens >= 0:
+            self._usage_tokens_total[engine] = int(session_tokens)
+        else:
+            tokens = self._extract_run_tokens(engine, stats)
+            if tokens > 0:
+                self._usage_tokens_total[engine] = (
+                    int(self._usage_tokens_total.get(engine, 0)) + tokens
+                )
 
-        cost = stats.get("cost_usd")
-        if isinstance(cost, (int, float)) and cost:
-            self._usage_cost_total[engine] = float(
-                self._usage_cost_total.get(engine, 0.0)
-            ) + float(cost)
+        session_cost = stats.get("session_cost_total")
+        if isinstance(session_cost, (int, float)) and session_cost >= 0:
+            self._usage_cost_total[engine] = float(session_cost)
+        else:
+            cost = stats.get("cost_usd")
+            if isinstance(cost, (int, float)) and cost:
+                self._usage_cost_total[engine] = float(
+                    self._usage_cost_total.get(engine, 0.0)
+                ) + float(cost)
 
     def _format_session_tokens_suffix(self, engine: str) -> str:
         total = int(self._usage_tokens_total.get(engine, 0) or 0)
@@ -215,6 +230,7 @@ class EngineRunnerMixin:
                 pi_config=pi_config or PiConfig(
                     model=session.model_id or None,
                     thinking=pi_thinking,
+                    system_prompt_extra=session.system_prompt_extra,
                 ),
             )
         elif engine == "cursor":
@@ -447,9 +463,12 @@ class EngineRunnerMixin:
                 "tokens_total",
                 "tokens_generated",
                 "tokens_processed",
+                "context_tokens",
                 "context_window",
+                "context_percent",
                 "cost_usd",
                 "duration_s",
+                "generation_duration_s",
                 "tps",
                 "tps_output",
                 "tps_generated",

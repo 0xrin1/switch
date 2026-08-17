@@ -167,6 +167,10 @@ ln -sf ~/switch/AGENTS.md ~/CLAUDE.md  # agent instructions symlink
 uv run python -m src.bridge          # run
 ```
 
+Pi dispatcher entries may set `system_prompt_extra` to append model-specific
+instructions to every session they create. The legacy name
+`append_system_prompt` remains accepted for compatibility.
+
 Or as a systemd user service:
 
 ```bash

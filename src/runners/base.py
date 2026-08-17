@@ -29,6 +29,13 @@ class RunState:
     terminal_error: str | None = None
     raw_output: list[str] = field(default_factory=list)
 
+    # Measured decode time across assistant messages. Runners that can observe
+    # stream boundaries use this for output tok/s instead of whole-agent wall
+    # time (which includes prefill, tools, retries, and user-facing prompts).
+    generation_started_at: float | None = None
+    generation_duration_s: float = 0.0
+    generation_tokens: int = 0
+
     # Server-mode runners can emit message events for both user and assistant.
     # Track roles by message ID so we can ignore user echoes.
     message_roles: Dict[str, str] = field(default_factory=dict)

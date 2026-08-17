@@ -91,6 +91,7 @@ class SessionsAdapter(SessionStorePort):
             model_id=s.model_id,
             reasoning_mode=s.reasoning_mode,
             opencode_agent=s.opencode_agent,
+            system_prompt_extra=s.system_prompt_extra,
         )
 
     async def update_last_active(self, name: str) -> None:

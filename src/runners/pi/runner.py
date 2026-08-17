@@ -111,6 +111,10 @@ class PiRunner(BaseRunner):
                     sys_prompt = _DEFAULT_SYSTEM_PROMPT
             else:
                 sys_prompt = _DEFAULT_SYSTEM_PROMPT
+        if self._config.system_prompt_extra:
+            extra = self._config.system_prompt_extra.strip()
+            if extra:
+                sys_prompt = f"{sys_prompt}\n\n{extra}" if sys_prompt else extra
         if sys_prompt:
             # sys_prompt += _FILE_SAFETY
             cmd.extend(["--append-system-prompt", sys_prompt])
@@ -153,6 +157,38 @@ class PiRunner(BaseRunner):
     def _is_alive(self) -> bool:
         """Check if the subprocess is still running."""
         return self._process is not None and self._process.returncode is None
+
+    @staticmethod
+    def _turn_stats(final: dict, baseline: dict | None) -> dict:
+        """Convert Pi's cumulative session stats into one-turn usage stats."""
+        result = dict(final)
+        final_tokens = final.get("tokens")
+        base_tokens = baseline.get("tokens") if isinstance(baseline, dict) else None
+        if not isinstance(final_tokens, dict):
+            final_tokens = {}
+        if not isinstance(base_tokens, dict):
+            base_tokens = {}
+
+        session_total = int(final_tokens.get("total", 0) or 0)
+        final_cost = float(final.get("cost", 0) or 0)
+        result["session_tokens_total"] = session_total
+        result["session_cost_total"] = final_cost
+
+        # Without a baseline, message_end usage collected by PiEventProcessor
+        # is safer than mislabeling the full historical session as one turn.
+        if baseline is None:
+            result["tokens"] = {}
+            result["cost"] = 0.0
+            return result
+
+        delta: dict[str, int] = {}
+        for key in ("input", "output", "cacheRead", "cacheWrite", "total"):
+            current = int(final_tokens.get(key, 0) or 0)
+            previous = int(base_tokens.get(key, 0) or 0)
+            delta[key] = max(0, current - previous)
+        result["tokens"] = delta
+        result["cost"] = max(0.0, final_cost - float(baseline.get("cost", 0) or 0))
+        return result
 
     async def _handle_extension_ui(self, event: dict) -> None:
         """Auto-respond to extension UI requests to prevent Pi from blocking."""
@@ -420,6 +456,22 @@ class PiRunner(BaseRunner):
             except RuntimeError:
                 pass  # Process died immediately — will be caught below.
 
+            # Pi's get_session_stats is cumulative over the complete persisted
+            # session. Snapshot it before the prompt so the final result can be
+            # converted to per-turn deltas.
+            baseline_data: dict | None = None
+            try:
+                await self._send({"type": "get_session_stats", "id": "baseline-stats"})
+                baseline = await self._read_response("get_session_stats", timeout=5.0)
+                if isinstance(baseline, dict) and isinstance(baseline.get("data"), dict):
+                    baseline_data = baseline["data"]
+            except Exception:
+                log.warning(
+                    "Failed to fetch baseline Pi stats for %s",
+                    self.session_name,
+                    exc_info=True,
+                )
+
             # Send the prompt.
             await self._send({"type": "prompt", "message": prompt})
 
@@ -450,13 +502,20 @@ class PiRunner(BaseRunner):
                         exc_info=True,
                     )
 
-            # Stats data is nested under "data" key.
-            stats_data = stats.get("data", {}) if isinstance(stats, dict) else {}
+            # Stats data is nested under "data" and is cumulative. Preserve
+            # authoritative session totals while passing per-turn deltas on.
+            cumulative_stats = stats.get("data", {}) if isinstance(stats, dict) else {}
+            stats_data = (
+                self._turn_stats(cumulative_stats, baseline_data)
+                if isinstance(cumulative_stats, dict)
+                else {}
+            )
+            stats_data["model"] = self._config.resolve_model() or "pi"
 
             # Extract session path from stats for resume.
             session_path = None
-            if isinstance(stats_data, dict):
-                session_path = stats_data.get("sessionFile") or stats_data.get("session")
+            if isinstance(cumulative_stats, dict):
+                session_path = cumulative_stats.get("sessionFile") or cumulative_stats.get("session")
 
             # Fallback: try get_state if stats didn't include session info.
             if not session_path and self._is_alive() and self._process.stdin and not self._process.stdin.is_closing():

@@ -35,6 +35,11 @@ class PiConfig:
     # None = use default, "" = skip entirely.
     system_prompt: str | None = None
 
+    # Extra text appended AFTER the resolved system prompt (default or
+    # system_prompt override). None/empty = no change. Used for per-dispatcher
+    # prompt additions (e.g. model-specific reasoning-strength hints).
+    system_prompt_extra: str | None = None
+
     def resolve_bin(self) -> str:
         return self.pi_bin or os.getenv("PI_BIN", "pi")
 

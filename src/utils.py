@@ -175,6 +175,14 @@ def _normalize_dispatchers(payload: object, *, domain: str) -> dict[str, dict]:
         if isinstance(reasoning_mode, str) and reasoning_mode.strip():
             entry["reasoning_mode"] = reasoning_mode.strip().lower()
 
+        # Canonical name is system_prompt_extra. Keep append_system_prompt as
+        # a config-file compatibility alias used by early deployments.
+        system_prompt_extra = item.get("system_prompt_extra")
+        if system_prompt_extra is None:
+            system_prompt_extra = item.get("append_system_prompt")
+        if isinstance(system_prompt_extra, str) and system_prompt_extra.strip():
+            entry["system_prompt_extra"] = system_prompt_extra.strip()
+
         if _parse_bool(item.get("direct"), default=False):
             entry["direct"] = True
         if _parse_bool(item.get("disabled"), default=False):
