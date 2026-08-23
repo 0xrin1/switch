@@ -24,7 +24,7 @@ Env (~/switch/heartbeat.env):
   HEARTBEAT_INTERVAL   seconds between supervisor cycles (default 600)
   STALE_SECONDS        iteration must advance within this (default 1500)
   ALERT_COOLDOWN       min seconds between spoken alerts (default 7200)
-  VOICE_URL / VOICE_TOKEN / VOICE_NAME  dorothy voice service
+  VOICE_URL / VOICE_TOKEN / VOICE_NAME  voice service (VOICE_URL required)
   HEARTBEAT_DRY_RUN=1  log alerts instead of speaking
 """
 import fcntl
@@ -50,7 +50,7 @@ ENV_SESSION = os.environ.get("HEARTBEAT_SESSION", "").strip()
 STALE_SECONDS = int(os.environ.get("STALE_SECONDS", "1500"))
 ALERT_COOLDOWN = int(os.environ.get("ALERT_COOLDOWN", "7200"))
 SESSION_ACTIVE_GRACE = int(os.environ.get("SESSION_ACTIVE_GRACE", "1800"))
-VOICE_URL = os.environ.get("VOICE_URL", "http://100.119.143.40:8931").rstrip("/")
+VOICE_URL = os.environ.get("VOICE_URL", "").strip().rstrip("/")
 VOICE_TOKEN = os.environ.get("VOICE_TOKEN", "")
 VOICE_NAME = os.environ.get("VOICE_NAME", "af_heart")
 DRY_RUN = os.environ.get("HEARTBEAT_DRY_RUN") == "1"
@@ -193,6 +193,9 @@ def iso_to_ts(s):
 
 
 def speak(line):
+    if not VOICE_URL:
+        log("voice skipped (VOICE_URL unset)")
+        return False
     try:
         url = (f"{VOICE_URL}/say?voice={urllib.parse.quote(VOICE_NAME)}"
                f"&text={urllib.parse.quote(line)}")

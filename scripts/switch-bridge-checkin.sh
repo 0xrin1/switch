@@ -1,9 +1,13 @@
 #!/bin/bash
 # GlitchTip HEARTBEAT check-in for the Switch bridge.
 # Only checks in when switch.service is actually active — silence = down.
-# Monitor: "Switch bridge (heartbeat)" id 17, interval 180s.
+# Config: SWITCH_GLITCHTIP_CHECKIN_URL (systemd unit or environment).
 set -u
-CHECKIN_URL="http://localhost:8000/api/0/organizations/switch/heartbeat_check/4fde1e08-22a7-4576-a07f-863b337eff0f/"
+CHECKIN_URL="${SWITCH_GLITCHTIP_CHECKIN_URL:-}"
+if [ -z "$CHECKIN_URL" ]; then
+  echo "switch-bridge-checkin: SWITCH_GLITCHTIP_CHECKIN_URL is unset" >&2
+  exit 1
+fi
 
 if [ "$(systemctl --user is-active switch.service 2>/dev/null)" = "active" ]; then
   curl -s -o /dev/null -m 10 -X POST "$CHECKIN_URL"

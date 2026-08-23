@@ -12,11 +12,23 @@ from pathlib import Path
 
 from src.ralph import parse_ralph_command
 
-HEARTBEAT_PROMPT = (
-    "Read /home/rin/switch/prompts/heartbeat-cycle.md "
-    "and follow it exactly, every cycle."
-)
 DEFAULT_WAIT_MINUTES = 30.0
+_DEFAULT_PROMPT_FILE = Path.home() / "switch" / "prompts" / "heartbeat-cycle.md"
+
+
+def heartbeat_prompt_file() -> Path:
+    override = os.environ.get("HEARTBEAT_PROMPT_FILE", "").strip()
+    if override:
+        return Path(override).expanduser()
+    return _DEFAULT_PROMPT_FILE
+
+
+def heartbeat_prompt() -> str:
+    return (
+        f"Read {heartbeat_prompt_file()} "
+        "and follow it exactly, every cycle."
+    )
+
 
 _STATE_DIR = Path.home() / "switch" / "state"
 _POINTER_NAME = "heartbeat-session"
@@ -85,12 +97,13 @@ def parse_heartbeat_command(body: str) -> dict | None:
         # /heartbeat-status and friends are other commands.
         return None
 
+    prompt = heartbeat_prompt()
     if not rest:
-        rest = f"{HEARTBEAT_PROMPT} --wait {DEFAULT_WAIT_MINUTES:g}"
+        rest = f"{prompt} --wait {DEFAULT_WAIT_MINUTES:g}"
     elif not _has_wait_flag(rest):
         rest = f"{rest} --wait {DEFAULT_WAIT_MINUTES:g}"
 
     parsed = parse_ralph_command(f"/ralph {rest}")
     if parsed is not None:
         return parsed
-    return parse_ralph_command(f"/ralph {HEARTBEAT_PROMPT} {rest}")
+    return parse_ralph_command(f"/ralph {prompt} {rest}")
