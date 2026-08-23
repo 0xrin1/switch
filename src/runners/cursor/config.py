@@ -19,6 +19,7 @@ class CursorModelVariant:
 # model-neutral and can support another family by adding its levels here.
 _MODEL_VARIANT_LEVELS: dict[str, frozenset[str]] = {
     "cursor-grok-4.5": frozenset({"low", "medium", "high"}),
+    "cursor-grok-4.6": frozenset({"low", "medium", "high", "xhigh"}),
 }
 
 

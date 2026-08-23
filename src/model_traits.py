@@ -13,6 +13,7 @@ VLLM_MODEL_PREFIXES: tuple[str, ...] = (
     "heretic_local/",
     "gemma4_helga/",
     "qwen35-",  # Heretic models often use qwen35 prefix
+    "qwen38_helga/",  # vLLM TP4 (heretic-ara + DFlash2, :8023) since 2026-08-22
 )
 VLLM_MODEL_SUBSTRINGS: tuple[str, ...] = ("heretic",)
 
@@ -25,7 +26,7 @@ LLAMACPP_MODEL_PREFIXES: tuple[str, ...] = (
 
 # Served by SGLang, whose OpenAI-compatible API also lacks vLLM's
 # pause/resume control endpoints.
-SGLANG_MODEL_PREFIXES: tuple[str, ...] = ("qwen38_helga/",)
+SGLANG_MODEL_PREFIXES: tuple[str, ...] = ()
 
 # Models known to spin on empty tool feedback without a loop guard.
 LOOP_GUARD_MODELS: frozenset[str] = frozenset(
