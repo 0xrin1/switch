@@ -18,6 +18,13 @@ class CursorEventProcessor:
         log_response: Callable[[str], None] | None = None,
     ):
         self._log_response = log_response
+        self._prompt_started = False
+
+    def begin_turn(self) -> None:
+        self._prompt_started = False
+
+    def mark_prompt_started(self) -> None:
+        self._prompt_started = True
 
     @staticmethod
     def _tool_summary(update: dict[str, Any]) -> str | None:
@@ -42,6 +49,11 @@ class CursorEventProcessor:
             return ("permission", msg)
 
         if method != "session/update":
+            return None
+
+        # session/load replays history as the same session/update notifications
+        # as a live turn. Ignore them until session/prompt is in flight.
+        if not self._prompt_started:
             return None
 
         params = msg.get("params") or {}

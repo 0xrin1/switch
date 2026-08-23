@@ -66,6 +66,16 @@ class CursorACPClient:
                 continue
             await self.events.put(msg)
 
+    def drain_events(self) -> int:
+        """Drop queued notifications. Used after session/load replay."""
+        dropped = 0
+        while True:
+            try:
+                self.events.get_nowait()
+            except asyncio.QueueEmpty:
+                return dropped
+            dropped += 1
+
     async def _read_stderr(self) -> None:
         assert self.proc and self.proc.stderr
         while True:

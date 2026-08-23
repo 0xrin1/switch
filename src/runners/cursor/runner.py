@@ -48,6 +48,7 @@ class CursorACPRunner(BaseRunner):
         cursor_session_id: str | None = None
 
         try:
+            self._processor.begin_turn()
             client = await self._transport.start(argv=self._argv(), cwd=self.working_dir)
             cursor_session_id = await self._transport.open_session(
                 client,
@@ -62,6 +63,10 @@ class CursorACPRunner(BaseRunner):
                 session_id=cursor_session_id,
                 prompt=prompt,
             )
+            # The prompt RPC has been scheduled but not written yet. Any events
+            # still queued are session/load replay leftovers, not live text.
+            self._transport.discard_pre_prompt_events()
+            self._processor.mark_prompt_started()
             reader_task = self._transport.reader_task()
             if reader_task is None:
                 raise RuntimeError("Cursor ACP stdout reader did not start")

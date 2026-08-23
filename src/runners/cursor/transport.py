@@ -8,6 +8,7 @@ from typing import Any
 
 from src.runners.cursor.acp import CursorACPClient
 from src.runners.cursor.config import CursorConfig
+from src.runners.cursor.events import agent_capabilities, supports_session_resume
 from src.runners.timeouts import control_plane_timeout_s
 
 log = logging.getLogger("cursor.transport")
@@ -18,6 +19,7 @@ class CursorACPTransport:
         self._config = config
         self._client: CursorACPClient | None = None
         self._cancelled = False
+        self._agent_capabilities: dict[str, Any] = {}
 
     @property
     def cancelled(self) -> bool:
@@ -38,7 +40,7 @@ class CursorACPTransport:
         timeout = control_plane_timeout_s(
             override=self._config.control_plane_timeout_s,
         )
-        await client.request(
+        initialize_result = await client.request(
             "initialize",
             {
                 "protocolVersion": 1,
@@ -50,6 +52,7 @@ class CursorACPTransport:
             },
             timeout_s=timeout,
         )
+        self._agent_capabilities = agent_capabilities(initialize_result)
         await client.request(
             "authenticate",
             {"methodId": self._config.auth_method},
@@ -67,25 +70,68 @@ class CursorACPTransport:
             override=self._config.control_plane_timeout_s,
         )
         params: dict[str, Any] = {"cwd": cwd, "mcpServers": []}
-        if session_id:
-            try:
-                result = await client.request(
-                    "session/load",
-                    {"sessionId": session_id, **params},
-                    timeout_s=timeout,
-                )
-                if isinstance(result, dict):
-                    return session_id
-            except Exception:
-                log.warning(
-                    "Cursor session/load failed; starting a new session",
-                    exc_info=True,
-                )
+        if session_id and await self._restore_session(
+            client, session_id=session_id, params=params, timeout=timeout
+        ):
+            return session_id
 
         result = await client.request("session/new", params, timeout_s=timeout)
         if not isinstance(result, dict) or not result.get("sessionId"):
             raise RuntimeError(f"Cursor session/new did not return sessionId: {result!r}")
         return str(result["sessionId"])
+
+    async def _restore_session(
+        self,
+        client: CursorACPClient,
+        *,
+        session_id: str,
+        params: dict[str, Any],
+        timeout: float,
+    ) -> bool:
+        restore_params = {"sessionId": session_id, **params}
+        if supports_session_resume(self._agent_capabilities):
+            try:
+                await client.request(
+                    "session/resume",
+                    restore_params,
+                    timeout_s=timeout,
+                )
+                client.drain_events()
+                return True
+            except Exception:
+                log.warning(
+                    "Cursor session/resume failed; trying session/load",
+                    exc_info=True,
+                )
+
+        try:
+            await client.request(
+                "session/load",
+                restore_params,
+                timeout_s=timeout,
+            )
+        except Exception:
+            log.warning(
+                "Cursor session/load failed; starting a new session",
+                exc_info=True,
+            )
+            return False
+
+        # session/load MUST replay history as session/update before it returns.
+        # Those notifications are not the current turn.
+        dropped = client.drain_events()
+        if dropped:
+            log.debug(
+                "Dropped %s Cursor ACP session/load replay event(s)",
+                dropped,
+            )
+        return True
+
+    def discard_pre_prompt_events(self) -> int:
+        client = self._client
+        if client is None:
+            return 0
+        return client.drain_events()
 
     def start_prompt(
         self,
