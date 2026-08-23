@@ -6,6 +6,7 @@ expects: ("session_id"|"text"|"tool"|"tool_result"|"result"|"error", data).
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Callable
@@ -15,6 +16,12 @@ from src.runners.pi.loop_detection import LoopGuardHit, PiToolLoopDetector
 from src.runners.ports import RunnerEvent, ToolResult
 
 Event = RunnerEvent
+
+log = logging.getLogger("pi")
+
+_ABORTED_MSG = "Request was aborted"
+_LENGTH_MSG = "Assistant response reached the output token limit"
+_NOISE_TERMINAL_ERRORS = frozenset({_ABORTED_MSG, _LENGTH_MSG})
 
 
 def _assistant_terminal_error(message: object) -> str | None:
@@ -28,7 +35,7 @@ def _assistant_terminal_error(message: object) -> str | None:
         return None
 
     stop = msg.get("stopReason")
-    if stop not in ("error", "aborted"):
+    if stop not in ("error", "aborted", "length"):
         return None
 
     err = msg.get("errorMessage")
@@ -37,7 +44,9 @@ def _assistant_terminal_error(message: object) -> str | None:
     if err is not None:
         return str(err)
     if stop == "aborted":
-        return "Request was aborted"
+        return _ABORTED_MSG
+    if stop == "length":
+        return _LENGTH_MSG
     return "Assistant request failed"
 
 
@@ -119,9 +128,11 @@ class PiEventProcessor:
                 error = _assistant_terminal_error(
                     event.get("message") if isinstance(event.get("message"), dict) else {}
                 )
+            # Pi may auto-retry this attempt after agent_end. Record the
+            # failure now, but only surface it if retries are exhausted.
             state.saw_error = True
             state.terminal_error = str(error or "Pi error")
-            return ("error", state.terminal_error)
+            return None
 
         return None
 
@@ -211,20 +222,27 @@ class PiEventProcessor:
         state.saw_error = True
         state.terminal_error = error
         self._log_to_file(f"[error] {error}\n")
+        # Skip abort/length (expected). Process crashes already log in PiRunner.
+        if error not in _NOISE_TERMINAL_ERRORS:
+            log.error("Pi terminal error: %s", error)
         return ("error", error)
 
     def _handle_agent_end(self, event: dict, state: RunState) -> list[Event]:
-        state.saw_result = True
+        # agent_end is a step boundary. Pi may still auto-retry or compact and
+        # continue afterward, so defer all terminal reporting to agent_settled.
+        error = _terminal_error_from_messages(event.get("messages"))
+        if error:
+            state.saw_error = True
+            state.terminal_error = error
+        return []
 
+    def _handle_agent_settled(self, state: RunState) -> list[Event]:
+        state.saw_result = True
         if self._log_response and state.text:
             self._log_response(state.text)
-
-        events: list[Event] = []
-        if not state.text:
-            error = _terminal_error_from_messages(event.get("messages"))
-            if error:
-                events.append(self._record_terminal_error(error, state))
-        return events
+        if state.saw_error and state.terminal_error:
+            return [self._record_terminal_error(state.terminal_error, state)]
+        return []
 
     def _handle_message_end(self, event: dict, state: RunState) -> list[Event]:
         events: list[Event] = []
@@ -248,11 +266,15 @@ class PiEventProcessor:
                 )
                 state.generation_started_at = None
 
-        if state.text:
-            return events
         error = _assistant_terminal_error(message)
         if error:
-            events.append(self._record_terminal_error(error, state))
+            state.saw_error = True
+            state.terminal_error = error
+        elif isinstance(message, dict) and message.get("role") == "assistant":
+            # A successful retry/continuation supersedes an earlier failed or
+            # length-limited attempt in the same Pi run.
+            state.saw_error = False
+            state.terminal_error = None
         return events
 
     def make_result(self, state: RunState, stats: dict | None = None) -> dict:
@@ -348,6 +370,9 @@ class PiEventProcessor:
 
         if event_type == "agent_end":
             return self._handle_agent_end(event, state)
+
+        if event_type == "agent_settled":
+            return self._handle_agent_settled(state)
 
         if event_type == "message_end":
             return self._handle_message_end(event, state)

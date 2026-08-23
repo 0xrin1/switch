@@ -63,6 +63,28 @@ class OpenCodeEventProcessor:
             ),
         }
 
+    @staticmethod
+    def terminal_error_from_response(response: dict) -> str | None:
+        """Return an error for explicit abnormal OpenCode completion states."""
+        raw_info = response.get("info")
+        info = raw_info if isinstance(raw_info, dict) else {}
+
+        error = info.get("error") or response.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("data")
+            if isinstance(message, dict):
+                message = message.get("message")
+            return str(message or error)
+        if error:
+            return str(error)
+
+        finish = info.get("finish") or response.get("finish")
+        if finish in {"length", "error", "aborted", "cancelled", "content_filter"}:
+            if finish == "length":
+                return "Assistant response reached the output token limit"
+            return f"OpenCode assistant stopped with finish reason: {finish}"
+        return None
+
     def process_message_response(self, response: dict, state: RunState) -> None:
         info: dict = {}
         raw_info = response.get("info")

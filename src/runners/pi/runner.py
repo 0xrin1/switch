@@ -400,6 +400,16 @@ class PiRunner(BaseRunner):
             if event_type == "response":
                 continue
 
+            if event_type in {"auto_retry_start", "compaction_start"}:
+                # Discard the failed/limited attempt's partial prose before Pi
+                # streams the replacement response. Reset the shared loop too.
+                state.text = ""
+                state.saw_error = False
+                state.terminal_error = None
+                state.generation_started_at = None
+                yield ("text_reset", None)
+                continue
+
             loop_guard_hit = False
             for parsed in self._processor.parse_event(event, state):
                 if parsed[0] == "_extension_ui_request":
@@ -420,7 +430,9 @@ class PiRunner(BaseRunner):
             if loop_guard_hit:
                 break
 
-            if event_type == "agent_end":
+            # Pi can retry or compact after agent_end. agent_settled is the
+            # actual end of all post-run recovery and continuation work.
+            if event_type == "agent_settled":
                 break
 
     async def run(

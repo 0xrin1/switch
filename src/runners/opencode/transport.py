@@ -145,8 +145,14 @@ class OpenCodeTransport:
         response = await message_task
         if isinstance(response, dict):
             processor.process_message_response(response, state)
+            terminal_error = processor.terminal_error_from_response(response)
+            if terminal_error:
+                state.saw_error = True
+                state.terminal_error = terminal_error
+                raise RuntimeError(terminal_error)
+
             state.saw_result = True
-            if not state.saw_error and not state.text:
+            if not state.text:
                 polled = await self._client.poll_assistant_text(session, session_id)
                 if polled and isinstance(polled, str):
                     state.text = polled

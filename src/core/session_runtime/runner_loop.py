@@ -149,6 +149,11 @@ async def run_runner_event_loop(
                         state.response_parts = [state.accumulated_text]
                     else:
                         state.response_parts = [text]
+                case ("text_reset", _):
+                    # A runner retried an interrupted generation. Remove the
+                    # failed attempt so it cannot be presented as final text.
+                    state.accumulated_text = ""
+                    state.response_parts.clear()
                 case ("tool", str(tool_content)):
                     if handlers.count_tools:
                         state.tool_count += 1
