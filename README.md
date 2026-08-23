@@ -121,6 +121,7 @@ Switch between engines mid-session with `/agent cc`, `/agent oc`, or `/agent pi`
 | `/kill <name>` | Kill a session |
 | `/new --with <jid[,jid]> <prompt>` | Shared MUC session |
 | `/ralph <prompt>` | Start autonomous loop |
+| `/heartbeat [args]` | Start heartbeat ralph + point the watchdog |
 | `/help` | Help |
 
 **Session commands** (send to session contacts like `fix-auth-bug@...`):
@@ -140,6 +141,9 @@ Switch between engines mid-session with `/agent cc`, `/agent oc`, or `/agent pi`
 | `/ralph <prompt>` | Start autonomous loop |
 | `/ralph-status` | Loop status |
 | `/ralph-cancel` | Stop loop after current iteration |
+| `/heartbeat` | Heartbeat ralph + point the watchdog (no `.env` / restart) |
+| `/heartbeat-status` | Heartbeat loop + watched session |
+| `/heartbeat-cancel` | Stop heartbeat and idle the watchdog |
 | `+<message>` | Spawn sibling session (when busy) |
 | `/peek [N]` | Peek at logs |
 

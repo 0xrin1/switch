@@ -136,8 +136,20 @@ class SessionBot(VllmAbortMixin, RoomMixin, DelegationHandlerMixin, BaseXMPPBot)
             output_dir=self.output_dir,
             infer_meta_tool_from_summary=self._infer_meta_tool_from_summary,
             startup_prompt_context=self._build_delegation_startup_context,
+            on_ralph_activity=self._notify_ralph_activity,
             **ports,
         )
+
+    def _notify_ralph_activity(self) -> None:
+        """Ping the directory so clients refresh ralph-loop markers."""
+        if not self.manager:
+            return
+        try:
+            self.manager.notify_directory_sessions_changed(
+                dispatcher_jid=self._current_dispatcher_jid()
+            )
+        except Exception:
+            self.log.debug("Failed to notify ralph activity", exc_info=True)
 
     # -------------------------------------------------------------------------
     # XMPP lifecycle

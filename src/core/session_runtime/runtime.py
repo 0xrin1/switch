@@ -68,6 +68,7 @@ class SessionRuntime(QuestionHandlerMixin, EngineRunnerMixin, RalphRunnerMixin):
         ralph_loops: RalphLoopStorePort | None = None,
         infer_meta_tool_from_summary: Callable[[str], str | None],
         startup_prompt_context: Callable[[], str] | None = None,
+        on_ralph_activity: Callable[[], None] | None = None,
     ):
         self.session_name = session_name
         self.working_dir = working_dir
@@ -81,6 +82,7 @@ class SessionRuntime(QuestionHandlerMixin, EngineRunnerMixin, RalphRunnerMixin):
         self._ralph_loops = ralph_loops
         self._infer_meta_tool_from_summary = infer_meta_tool_from_summary
         self._startup_prompt_context = startup_prompt_context
+        self._on_ralph_activity = on_ralph_activity
 
         self._generation = 0
         self._queue: asyncio.Queue[_WorkItem] = asyncio.Queue()

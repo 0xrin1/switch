@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Callable, Coroutine, cast
 from src.db import SessionRepository
 from src.engines import PI_MODEL_DEFAULT
 from src.lifecycle.sessions import create_session as lifecycle_create_session
+from src.heartbeat import parse_heartbeat_command
 from src.ralph import parse_ralph_command
 from src.runners import create_runner
 from src.runners.pi.config import PiConfig
@@ -96,6 +97,7 @@ class DispatcherBot(BaseXMPPBot):
             "/commit": self._cmd_commit,
             "/c": self._cmd_commit,
             "/ralph": self._cmd_ralph,
+            "/heartbeat": self._cmd_heartbeat,
             "/new": self._cmd_new,
             "/help": self._cmd_help,
         }
@@ -344,6 +346,7 @@ class DispatcherBot(BaseXMPPBot):
             "  /new --with <jid[,jid]> <prompt> - shared room session\n"
             "  /commit [host:]<repo> - commit and push\n"
             "  /ralph <args> - create a session and start a Ralph loop\n"
+            "  /heartbeat [args] - create a session, start the heartbeat ralph, point the watchdog\n"
             "  /help - this message",
             recipient=reply_to,
         )
@@ -524,6 +527,62 @@ class DispatcherBot(BaseXMPPBot):
             *[f"  {n}@{self.xmpp_domain}" for n in names],
         ]
         self.send_reply("\n".join(lines), recipient=reply_to)
+
+    async def _cmd_heartbeat(self, arg: str, reply_to: str) -> None:
+        """Create a session, start the heartbeat ralph, point the watchdog at it."""
+        raw_arg = arg.strip()
+        if raw_arg:
+            parsed = parse_heartbeat_command(f"/heartbeat {raw_arg}")
+            if parsed is None:
+                self.send_reply(
+                    "Usage: /heartbeat [prompt/args]\n"
+                    "No args = cycle prompt + --wait 30. Same flags as /ralph. No --swarm.",
+                    recipient=reply_to,
+                )
+                return
+            if int(parsed.get("swarm") or 1) > 1:
+                self.send_reply(
+                    "Heartbeat is one session. No --swarm.",
+                    recipient=reply_to,
+                )
+                return
+
+        if not self.manager:
+            self.send_reply("Session manager unavailable.", recipient=reply_to)
+            return
+        manager = cast("SessionManager", self.manager)
+
+        created_name = await lifecycle_create_session(
+            manager,
+            "",
+            engine=self.engine,
+            model_id=self.model_id,
+            reasoning_mode=self.reasoning_mode,
+            opencode_agent=self.agent,
+            label=self.label,
+            name_hint="heartbeat",
+            system_prompt_extra=self.system_prompt_extra,
+            announce="Heartbeat session '{name}' ({label}). Starting loop...",
+            dispatcher_jid=str(self.boundjid.bare),
+            owner_jid=reply_to,
+        )
+        if not created_name:
+            self.send_reply("Failed to create heartbeat session", recipient=reply_to)
+            return
+        bot = manager.session_bots.get(created_name)
+        if not bot:
+            self.send_reply(
+                f"Created {created_name} but session bot missing",
+                recipient=reply_to,
+            )
+            return
+        await bot.commands.handle(
+            f"/heartbeat {raw_arg}".rstrip() if raw_arg else "/heartbeat"
+        )
+        self.send_reply(
+            f"Started heartbeat in {created_name}@{self.xmpp_domain}",
+            recipient=reply_to,
+        )
 
     async def create_session(
         self,

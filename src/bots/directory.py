@@ -22,7 +22,7 @@ from slixmpp.exceptions import IqError, IqTimeout
 from slixmpp.plugins.xep_0030.stanza.items import DiscoItems
 from slixmpp.xmlstream import ET
 
-from src.db import SessionRepository
+from src.db import RalphLoopRepository, SessionRepository
 from src.utils import BaseXMPPBot
 
 
@@ -46,6 +46,7 @@ class DirectoryBot(BaseXMPPBot):
         super().__init__(jid, password)
         self.log = logging.getLogger(f"directory.{jid}")
         self.sessions = SessionRepository(db)
+        self.ralph_loops = RalphLoopRepository(db)
         self.xmpp_domain = xmpp_domain
         self.dispatchers_config = dispatchers_config
         self.pubsub_service_jid = pubsub_service_jid
@@ -189,10 +190,12 @@ class DirectoryBot(BaseXMPPBot):
 
         sessions = self._filter_by_dispatcher(sessions, key)
 
+        ralph_names = self._ralph_running_names()
         active_jids: set[str] = set()
         for s in sessions:
             try:
-                items.add_item(JID(s.xmpp_jid), name=s.name)
+                node = "ralph" if s.name in ralph_names else None
+                items.add_item(JID(s.xmpp_jid), node=node, name=s.name)
                 active_jids.add(str(JID(s.xmpp_jid).bare))
             except Exception:
                 continue
@@ -279,14 +282,23 @@ class DirectoryBot(BaseXMPPBot):
                 filtered.append(s)
             sessions = filtered
 
+        ralph_names = self._ralph_running_names()
         for s in sessions:
             try:
-                items.add_item(JID(s.xmpp_jid), name=s.name)
+                node = "ralph" if s.name in ralph_names else None
+                items.add_item(JID(s.xmpp_jid), node=node, name=s.name)
             except Exception:
                 # Be defensive: never fail a directory response due to one row.
                 continue
 
         return items
+
+    def _ralph_running_names(self) -> set[str]:
+        """Session names with an active ralph loop (for disco tagging)."""
+        try:
+            return self.ralph_loops.list_running_session_names()
+        except Exception:
+            return set()
 
     # ---------------------------------------------------------------------
     # XEP-0060: pubsub notifications
@@ -326,6 +338,8 @@ class DirectoryBot(BaseXMPPBot):
                 session_el.set("jid", str(jid_val))
                 if node_val == "closed":
                     session_el.set("status", "closed")
+                elif node_val == "ralph":
+                    session_el.set("ralph", "1")
                 if name_val:
                     session_el.set("name", name_val)
             pubsub = cast(Any, self["xep_0060"])

@@ -59,6 +59,14 @@ class RalphLoopRepository:
         ).fetchone()
         return self._row_to_ralph_loop(row) if row else None
 
+    def list_running_session_names(self) -> set[str]:
+        """Names of sessions with an active (running/stopping) ralph loop."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT session_name FROM ralph_loops"
+            " WHERE status IN ('running', 'stopping')"
+        ).fetchall()
+        return {row["session_name"] for row in rows}
+
     async def create(
         self,
         session_name: str,

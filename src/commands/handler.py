@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 
 from src.commands.mixins import (
     EngineCommandsMixin,
+    HeartbeatCommandsMixin,
     HistoryCommandsMixin,
     MiscCommandsMixin,
     RalphCommandsMixin,
@@ -20,6 +21,7 @@ class CommandHandler(
     SessionCommandsMixin,
     EngineCommandsMixin,
     RalphCommandsMixin,
+    HeartbeatCommandsMixin,
     HistoryCommandsMixin,
     MiscCommandsMixin,
 ):

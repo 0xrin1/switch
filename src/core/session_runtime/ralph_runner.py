@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from src.engines import ralph_engine_names
 from src.core.session_runtime.api import OutboundMessage, RalphConfig, RalphStatus
@@ -15,8 +16,39 @@ from src.core.session_runtime.runner_loop import (
 
 log = logging.getLogger("session_runtime.ralph")
 
+# Touch sessions.last_active at most this often while a ralph loop waits,
+# so watchdog grace checks (e.g. SESSION_ACTIVE_GRACE) see a live session
+# across long inter-iteration waits.
+_RALPH_WAIT_TOUCH_INTERVAL_S = 300.0
+
 
 class RalphRunnerMixin:
+    def _notify_ralph_activity(self) -> None:
+        """Best-effort ping so directory/clients refresh ralph markers."""
+        cb = getattr(self, "_on_ralph_activity", None)
+        if not cb:
+            return
+        try:
+            cb()
+        except Exception:
+            log.debug("Ralph activity notify failed", exc_info=True)
+
+    async def _touch_last_active(self) -> None:
+        """Update sessions.last_active so ralph loops count as active sessions.
+
+        Uses the same rate limiter as the inbound-message path.
+        """
+        if not self._sessions:
+            return
+        now = time.monotonic()
+        if (now - self._last_active_written_at) < self._last_active_min_interval_s:
+            return
+        try:
+            await self._sessions.update_last_active(self.session_name)
+            self._last_active_written_at = now
+        except Exception:
+            log.debug("Ralph last_active touch failed", exc_info=True)
+
     async def _ralph_save(self, status: str) -> None:
         if (
             not self._ralph_loops
@@ -30,6 +62,10 @@ class RalphRunnerMixin:
             self._ralph_status.total_cost,
             status=status,
         )
+        # "running" saves happen every iteration; only terminal transitions
+        # change whether the session shows up as an active ralph loop.
+        if status != "running":
+            self._notify_ralph_activity()
 
     async def _run_ralph(self, cfg: RalphConfig) -> None:
         if not await self._ralph_begin(cfg):
@@ -42,6 +78,7 @@ class RalphRunnerMixin:
 
                 self._ralph_status.current_iteration += 1
                 await self._ralph_save("running")
+                await self._touch_last_active()
 
                 if not await self._ralph_run_turn(cfg):
                     return
@@ -101,6 +138,7 @@ class RalphRunnerMixin:
                 "Use /ralph-cancel to stop after current iteration (or /cancel to abort immediately)"
             )
         )
+        self._notify_ralph_activity()
         return True
 
     async def _ralph_should_stop(self, cfg: RalphConfig) -> bool:
@@ -218,12 +256,21 @@ class RalphRunnerMixin:
     async def _ralph_wait(self, cfg: RalphConfig) -> None:
         if not cfg.wait_seconds or cfg.wait_seconds <= 0:
             return
-        try:
-            await asyncio.wait_for(self._ralph_wake.wait(), timeout=cfg.wait_seconds)
-        except asyncio.TimeoutError:
-            pass
-        finally:
-            self._ralph_wake.clear()
+        remaining = float(cfg.wait_seconds)
+        while remaining > 0:
+            chunk = min(_RALPH_WAIT_TOUCH_INTERVAL_S, remaining)
+            try:
+                await asyncio.wait_for(
+                    self._ralph_wake.wait(), timeout=chunk
+                )
+            except asyncio.TimeoutError:
+                self._ralph_wake.clear()
+                await self._touch_last_active()
+                remaining -= chunk
+            else:
+                # Woken by an injected prompt; consume the wake, exit early.
+                self._ralph_wake.clear()
+                return
 
     def _ralph_take_injected_prompt(self) -> str | None:
         injected = self._ralph_injected_prompt

@@ -74,6 +74,9 @@ Commands start with `/`. The `@` prefix also works (`@kill` = `/kill`) — usefu
 | `/ralph-look <N> <prompt>` (alias: `/ralphlook`) | Stateless — fresh context each iteration |
 | `/ralph-status` | Check status of running loop |
 | `/ralph-cancel` (alias: `/ralph-stop`) | Stop loop after current iteration |
+| `/heartbeat` | Ralph loop for the heartbeat brain + point the watchdog (no `.env` / restart) |
+| `/heartbeat-status` | Loop status + which session the watchdog watches |
+| `/heartbeat-cancel` | Stop loop and idle the watchdog |
 
 ### Dispatcher Commands (sent to orchestrator contacts)
 
@@ -85,6 +88,7 @@ Commands start with `/`. The `@` prefix also works (`@kill` = `/kill`) — usefu
 | `/commit [host:]<repo>` | Commit and push a repo (local or remote via SSH) |
 | `/c` | Alias for `/commit` |
 | `/ralph <args>` | Create a new session and start a Ralph loop |
+| `/heartbeat [args]` | Create a session, start the heartbeat ralph, point the watchdog |
 | `/help` | Show help |
 
 ## Long-Running Processes

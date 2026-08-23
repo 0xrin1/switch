@@ -2,6 +2,7 @@
 
 from src.commands.mixins.base import CommandMixinBase
 from src.commands.mixins.engine import EngineCommandsMixin
+from src.commands.mixins.heartbeat import HeartbeatCommandsMixin
 from src.commands.mixins.history import HistoryCommandsMixin
 from src.commands.mixins.misc import MiscCommandsMixin
 from src.commands.mixins.ralph import RalphCommandsMixin
@@ -12,6 +13,7 @@ __all__ = [
     "SessionCommandsMixin",
     "EngineCommandsMixin",
     "RalphCommandsMixin",
+    "HeartbeatCommandsMixin",
     "HistoryCommandsMixin",
     "MiscCommandsMixin",
 ]

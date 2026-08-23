@@ -12,6 +12,8 @@ Send these to the dispatcher bot (`cc@`, `oc@`, or `pi-gpt@`):
 | `/list` | Show all sessions |
 | `/recent` | Show 10 most recent sessions with status |
 | `/kill <name>` | End a session (best-effort goodbye + unregister XMPP account + stop reconnect + mark closed) |
+| `/ralph <args>` | Create a session and start a Ralph loop |
+| `/heartbeat [args]` | Create a session, start the heartbeat ralph, point the watchdog |
 | `/help` | Show help message |
 
 ## Session Commands
@@ -59,6 +61,9 @@ Example: `!git status`, `!pwd`, `!ls -la`
 | `/ralph-look <prompt>` | Alias for `/ralph <prompt> --look` |
 | `/ralph-status` | Check loop progress |
 | `/ralph-cancel` | Stop after current iteration |
+| `/heartbeat [prompt/flags]` | Cycle prompt + `--wait 30`, or same flags as `/ralph`. Points the watchdog. No `--swarm` |
+| `/heartbeat-status` | Loop status + which session the watchdog watches |
+| `/heartbeat-cancel` | Stop loop and idle the watchdog |
 
 Example:
 ```
