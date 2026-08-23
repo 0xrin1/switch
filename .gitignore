@@ -50,6 +50,7 @@ src/runners/weaver/
 
 # Local scratch/vendor dirs (not part of Switch runtime)
 Sources/
+vendor/
 __pycache__/
 *.pyc
 *.pyo

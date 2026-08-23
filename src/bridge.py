@@ -27,6 +27,7 @@ from src.attachments.server import start_attachments_server
 from src.db import init_db
 from src.helpers import create_xmpp_account
 from src.manager import SessionManager
+from src.telemetry import init_telemetry
 from src.utils import get_xmpp_config, load_env
 
 # Load environment
@@ -83,6 +84,10 @@ class _SingleInstanceLock:
 
 
 async def main():
+    # Error reporting (GlitchTip) — as early as possible so that even
+    # lock/DB infrastructure failures are captured. No-op without DSN.
+    init_telemetry()
+
     lock_path = Path(
         os.getenv("SWITCH_LOCK_FILE", "/tmp/switch-bridge.lock")
     ).expanduser()
